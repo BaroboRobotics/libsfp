@@ -1,0 +1,22 @@
+#ifndef _QUEUE_H_
+#define _QUEUE_H_
+
+#include "ringbuf.h"
+
+#define QUEUE RINGBUF
+
+#define QUEUE_CAPACITY RINGBUF_CAPACITY
+
+#define QUEUE_INIT(Q) RINGBUF_INIT_NAMED(Q, "queue")
+
+#define QUEUE_EMPTY RINGBUF_EMPTY
+
+#define QUEUE_FULL RINGBUF_FULL
+
+#define QUEUE_FRONT RINGBUF_FRONT
+
+#define QUEUE_PUSH RINGBUF_PUSH_BACK
+
+#define QUEUE_POP RINGBUF_POP_FRONT
+
+#endif
