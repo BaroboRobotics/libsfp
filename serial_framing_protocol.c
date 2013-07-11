@@ -287,7 +287,7 @@ static void sfpHandleNAK (sfp_t *context, sfp_seq_t seq) {
 
 
   if (RINGBUF_SIZE(context->tx.history) > fastforward) {
-    for (int i = 0; i < fastforward; ++i) {
+    for (unsigned i = 0; i < fastforward; ++i) {
       RINGBUF_POP_FRONT(context->tx.history);
     }
   }
