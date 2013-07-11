@@ -8,82 +8,110 @@
 
 //#define SFP_DEBUG
 
+#ifdef SFP_DEBUG
+#ifndef SFP_CONFIG_MAX_DEBUG_NAME_SIZE
+#define SFP_CONFIG_MAX_DEBUG_NAME_SIZE 256
+#endif
+#endif
+
 #ifndef SFP_CONFIG_HISTORY_CAPACITY
 /* Must be a power of two for use in the ring buffer. */
 #define SFP_CONFIG_HISTORY_CAPACITY (1<<4)
 #endif
 
-#ifndef SFP_CONFIG_MAX_FRAME_SIZE
-#define SFP_CONFIG_MAX_FRAME_SIZE 256
+#ifndef SFP_CONFIG_MAX_PACKET_SIZE
+#define SFP_CONFIG_MAX_PACKET_SIZE 256
 #endif
 
-typedef uint8_t sfp_seq_t;
-typedef sfp_seq_t sfp_header_t;
-typedef uint16_t sfp_crc_t;
+#ifndef SFP_CONFIG_WRITEBUF_SIZE
+#define SFP_CONFIG_WRITEBUF_SIZE 256
+#endif
 
-/* Must be kept in sync with sfp_crc_t's size. */
+typedef uint8_t SFPseq;
+typedef uint8_t SFPheader;
+typedef uint16_t SFPcrc;
+
+/* Must be kept in sync with SFPcrc's size. */
 #define sfpByteSwapCRC netByteOrder16
 
 typedef struct {
-  uint8_t buf[SFP_CONFIG_MAX_FRAME_SIZE];
+  uint8_t buf[SFP_CONFIG_MAX_PACKET_SIZE];
   size_t len;
-} sfp_frame_t;
+} SFPpacket;
 
-typedef void (*sfp_deliver_func_t) (sfp_frame_t *frame);
-typedef void (*sfp_write_func_t) (uint8_t octet);
-typedef void (*sfp_lock_func_t) (void *mutex);
-typedef void (*sfp_unlock_func_t) (void *mutex);
+typedef void (*SFPdeliverfun) (SFPpacket *packet, void *user_data);
+typedef void (*SFPwrite1fun) (uint8_t octet, void *user_data);
+typedef void (*SFPwritenfun) (uint8_t *octets, size_t len, void *user_data);
+typedef void (*SFPlockfun) (void *mutex);
+typedef void (*SFPunlockfun) (void *mutex);
 
 typedef enum {
   SFP_ESCAPE_STATE_NORMAL,
   SFP_ESCAPE_STATE_ESCAPING
-} sfp_escape_state_t;
+} SFPescapestate;
 
 typedef enum {
   SFP_FRAME_STATE_NEW,
   SFP_FRAME_STATE_RECEIVING
-} sfp_frame_state_t;
+} SFPframestate;
+
+typedef enum {
+  SFP_WRITE_ONE,
+  SFP_WRITE_MULTIPLE
+} SFPwritetype;
 
 typedef struct {
-  sfp_seq_t seq;
-  sfp_crc_t crc;
+  SFPseq seq;
+  SFPcrc crc;
 
-  RINGBUF(sfp_frame_t, SFP_CONFIG_HISTORY_CAPACITY) history;
+  RINGBUF(SFPpacket, SFP_CONFIG_HISTORY_CAPACITY) history;
 
-  sfp_write_func_t write;
+  uint8_t writebuf[SFP_CONFIG_WRITEBUF_SIZE];
+  size_t writebufn;
 
-  sfp_lock_func_t lock;
-  sfp_unlock_func_t unlock;
+  SFPwrite1fun write1;
+  void *write1Data;
 
-  void *mutex;
-} sfp_transmitter_t;
+  SFPwritenfun writen;
+  void *writenData;
 
-typedef struct {
-  sfp_seq_t seq;
-  sfp_crc_t crc;
+  SFPlockfun lock;
+  void *lockData;
 
-  sfp_escape_state_t escapeState;
-  sfp_frame_state_t frameState;
-
-  sfp_header_t header;
-  sfp_frame_t frame;
-
-  sfp_deliver_func_t deliver;
-} sfp_receiver_t;
+  SFPunlockfun unlock;
+  void *unlockData;
+} SFPtransmitter;
 
 typedef struct {
-  sfp_transmitter_t tx;
-  sfp_receiver_t rx;
+  SFPseq seq;
+  SFPcrc crc;
+
+  SFPescapestate escapeState;
+  SFPframestate frameState;
+
+  SFPheader header;
+  SFPpacket packet;
+
+  SFPdeliverfun deliver;
+  void *deliverData;
+} SFPreceiver;
+
+typedef struct {
+  SFPtransmitter tx;
+  SFPreceiver rx;
 
 #ifdef SFP_DEBUG
-  const char *debugName;
+  char debugName[SFP_CONFIG_MAX_DEBUG_NAME_SIZE];
 #endif
-} sfp_t;
+} SFPcontext;
 
-void sfpDeliverOctet (sfp_t *context, uint8_t octet);
-void sfpWriteFrame (sfp_t *context, sfp_frame_t *frame);
-void sfpInit (sfp_t *context, sfp_deliver_func_t deliver, sfp_write_func_t write,
-    sfp_lock_func_t lock, sfp_unlock_func_t unlock, void *mutex);
+void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet);
+void sfpWritePacket (SFPcontext *ctx, SFPpacket *packet);
+void sfpInit (SFPcontext *ctx);
+void sfpSetDeliverCallback (SFPcontext *ctx, SFPdeliverfun cbfun, void *userdata);
+void sfpSetWriteCallback (SFPcontext *ctx, SFPwritetype type, void *cbfun, void *userdata);
+void sfpSetLockCallback (SFPcontext *ctx, SFPlockfun cbfun, void *userdata);
+void sfpSetUnlockCallback (SFPcontext *ctx, SFPunlockfun cbfun, void *userdata);
 
 /* SFP reserved octets */
 enum {
@@ -95,7 +123,7 @@ enum {
 #define SFP_NAK_BIT 0x80
 #define SFP_SEQ_RANGE SFP_NAK_BIT
 
-#define SFP_CRC_SIZE sizeof(sfp_crc_t)
+#define SFP_CRC_SIZE sizeof(SFPcrc)
 
 #define SFP_CRC_PRESET 0xffff   /* The initial value for the CRC, recommended
                                  * by an article in Dr. Dobb's Journal */
