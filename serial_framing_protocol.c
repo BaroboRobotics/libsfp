@@ -204,7 +204,7 @@ static void sfpTryDeliverFrame (SFPcontext *ctx) {
     fflush(stderr);
 #endif
 
-#ifdef SFP_SHOW_WARNINGS
+#ifdef SFP_WARN
     fprintf(stderr, "(sfp) WARNING: short frame received, sending NAK.\n");
 #endif
     sfpSendNAK(ctx);
@@ -229,7 +229,7 @@ static void sfpTryDeliverFrame (SFPcontext *ctx) {
 #endif
 
     if (crc != ctx->rx.crc) {
-#ifdef SFP_SHOW_WARNINGS
+#ifdef SFP_WARN
       fprintf(stderr, "(sfp) WARNING: CRC mismatch, ignoring.\n");
 #endif
       return;
@@ -243,7 +243,7 @@ static void sfpTryDeliverFrame (SFPcontext *ctx) {
 #endif
 
     if (crc != ctx->rx.crc) {
-#ifdef SFP_SHOW_WARNINGS
+#ifdef SFP_WARN
       fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
 #endif
       sfpSendNAK(ctx);
@@ -261,7 +261,7 @@ static void sfpTryDeliverUserFrame (SFPcontext *ctx) {
     ctx->rx.seq = sfpNextSeq(ctx->rx.seq);
   }
   else {
-#ifdef SFP_SHOW_WARNINGS
+#ifdef SFP_WARN
     fprintf(stderr, "(sfp) WARNING: out-of-order frame received, sending NAK.\n");
 #endif
     sfpSendNAK(ctx);
@@ -284,11 +284,15 @@ static void sfpHandleControlFrame (SFPcontext *ctx) {
 #endif
     }
     else {
+#ifdef SFP_WARN
+      fprintf(stderr, "(sfp) WARNING: current SEQ<%d>, remote host NAK'ed SEQ<%d>.\n",
+          ctx->tx.seq, seq);
+#endif
       sfpHandleNAK(ctx, seq);
     }
   }
   else {
-#ifdef SFP_SHOW_WARNINGS
+#ifdef SFP_WARN
     fprintf(stderr, "(sfp) WARNING: unknown or corrupt control frame received, ignoring: 0x%x.\n",
         ctx->rx.header);
 #endif

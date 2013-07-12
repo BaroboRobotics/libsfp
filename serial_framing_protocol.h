@@ -6,6 +6,7 @@
 
 #include <stdlib.h>
 
+#define SFP_WARN
 //#define SFP_DEBUG
 
 #ifdef SFP_DEBUG
