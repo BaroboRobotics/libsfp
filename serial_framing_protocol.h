@@ -35,7 +35,7 @@ typedef uint16_t SFPcrc;
 /* Must be kept in sync with SFPcrc's size. */
 #define sfpByteSwapCRC netByteOrder16
 
-typedef struct {
+typedef struct SFPpacket {
   uint8_t buf[SFP_CONFIG_MAX_PACKET_SIZE];
   size_t len;
 } SFPpacket;
@@ -61,7 +61,7 @@ typedef enum {
   SFP_WRITE_MULTIPLE
 } SFPwritetype;
 
-typedef struct {
+typedef struct SFPtransmitter {
   SFPseq seq;
   SFPcrc crc;
 
@@ -83,7 +83,7 @@ typedef struct {
   void *unlockData;
 } SFPtransmitter;
 
-typedef struct {
+typedef struct SFPreceiver {
   SFPseq seq;
   SFPcrc crc;
 
@@ -97,7 +97,7 @@ typedef struct {
   void *deliverData;
 } SFPreceiver;
 
-typedef struct {
+typedef struct SFPcontext {
   SFPtransmitter tx;
   SFPreceiver rx;
 
