@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <ctype.h>
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -31,6 +32,9 @@ static void sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet);
 static void sfpWrite (SFPcontext *ctx, uint8_t octet);
 static int sfpIsTransmitterLockable (SFPcontext *ctx);
 
+static const char *sfpEscapeStateToString (SFPescapestate s);
+static const char *sfpFrameStateToString (SFPframestate s);
+static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out);
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet);
 static void sfpHandleNAK (SFPcontext *ctx, SFPseq seq);
 static void sfpSendNAK (SFPcontext *ctx);
@@ -195,6 +199,7 @@ static void sfpResetReceiver (SFPcontext *ctx) {
 }
 
 static void sfpTryDeliverFrame (SFPcontext *ctx) {
+  sfpPrintReceiverState(ctx, stderr);
   if (SFP_CRC_SIZE > ctx->rx.packet.len) {
 #ifdef SFP_DEBUG
     fprintf(stderr, "(sfp) DEBUG(%s): RX<0x%02x \"", ctx->debugName, ctx->rx.header);
@@ -368,11 +373,69 @@ static void sfpHandleNAK (SFPcontext *ctx, SFPseq seq) {
   }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+
+#define BUFSIZE 64
+static const char *sfpEscapeStateToString (SFPescapestate s) {
+  static char buf[BUFSIZE];
+
+  switch (s) {
+    case SFP_ESCAPE_STATE_NORMAL:
+      return "SFP_ESCAPE_STATE_NORMAL";
+    case SFP_ESCAPE_STATE_ESCAPING:
+      return "SFP_ESCAPE_STATE_ESCAPING";
+    default:
+      snprintf(buf, BUFSIZE, "(unknown escape state %d (0x%02x))", s, s);
+      return buf;
+  }
+}
+
+static const char *sfpFrameStateToString (SFPframestate s) {
+  static char buf[BUFSIZE];
+
+  switch (s) {
+    case SFP_FRAME_STATE_NEW:
+      return "SFP_FRAME_STATE_NEW";
+    case SFP_FRAME_STATE_RECEIVING:
+      return "SFP_FRAME_STATE_RECEIVING";
+    default:
+      snprintf(buf, BUFSIZE, "(unknown frame state %d (0x%02x))", s, s);
+      return buf;
+  }
+}
+#undef BUFSIZE
+
+static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
+  fprintf(out, "(sfp) Receiver state:\n"
+      "\tescape state: %s\n"
+      "\tframe state: %s\n"
+      "\texpecting SEQ: %d (0x%02x)\n"
+      "\tcurrent frame: %sSEQ<%d (0x%02x)> |",
+      sfpEscapeStateToString(ctx->rx.escapeState),
+      sfpFrameStateToString(ctx->rx.frameState),
+      ctx->rx.seq, ctx->rx.seq,
+      ctx->rx.header & SFP_NAK_BIT ? "SFP_NAK_BIT | " : "",
+      ctx->rx.header & (SFP_SEQ_RANGE - 1),
+      ctx->rx.header & (SFP_SEQ_RANGE - 1));
+
+  for (size_t i = 0; i < ctx->rx.packet.len; ++i) {
+    uint8_t octet = ctx->rx.packet.buf[i];
+    fprintf(out, " %02x", octet);
+    if (isprint(octet)) {
+      fprintf(out, "(%c)", octet);
+    }
+  }
+
+  fprintf(out, " | CRC<0x%04x>\n", ctx->rx.crc);
+}
+
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet) {
   if (SFP_CONFIG_MAX_PACKET_SIZE <= ctx->rx.packet.len) {
     fprintf(stderr, "(sfp) ERROR: incoming frame(s) lost by frame buffer overrun.\n"
         "\tTry increasing SFP_CONFIG_MAX_PACKET_SIZE.\n"
         "\tThis could also be caused by a corrupt FLAG octet.\n");
+
+    sfpPrintReceiverState(ctx, stderr);
 
     /* Until I have a better idea, just going to pretend we didn't receive
      * anything at all, and just go on with life. If this was caused by a
@@ -463,6 +526,19 @@ static void sfpWriteFrameWithSeq (SFPcontext *ctx, SFPseq seq, SFPpacket *packet
   ctx->tx.write1(SFP_FLAG, ctx->tx.write1Data);
 
   sfpFlushWriteBuffer(ctx);
+
+  fprintf(stderr, "(sfp) Sent frame: %sSEQ<%d (0x%02x)> | ",
+      seq & SFP_NAK_BIT ? "SFP_NAK_BIT | " : "",
+      seq & (SFP_SEQ_RANGE - 1),
+      seq & (SFP_SEQ_RANGE - 1));
+
+  if (packet) {
+    for (size_t i = 0; i < packet->len; ++i) {
+      fprintf(stderr, "%02x ", packet->buf[i]);
+    }
+  }
+
+  fprintf(stderr, "| CRC<0x%04x>\n", crc);
 }
 
 static void sfpFlushWriteBuffer (SFPcontext *ctx) {

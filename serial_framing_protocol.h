@@ -40,11 +40,11 @@ typedef struct SFPpacket {
   size_t len;
 } SFPpacket;
 
-typedef void (*SFPdeliverfun) (SFPpacket *packet, void *user_data);
-typedef void (*SFPwrite1fun) (uint8_t octet, void *user_data);
-typedef void (*SFPwritenfun) (uint8_t *octets, size_t len, void *user_data);
-typedef void (*SFPlockfun) (void *mutex);
-typedef void (*SFPunlockfun) (void *mutex);
+typedef void (*SFPdeliverfun) (SFPpacket *packet, void *userdata);
+typedef void (*SFPwrite1fun) (uint8_t octet, void *userdata);
+typedef void (*SFPwritenfun) (uint8_t *octets, size_t len, void *userdata);
+typedef void (*SFPlockfun) (void *userdata);
+typedef void (*SFPunlockfun) (void *userdata);
 
 typedef enum {
   SFP_ESCAPE_STATE_NORMAL,
