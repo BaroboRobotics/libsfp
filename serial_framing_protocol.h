@@ -35,7 +35,13 @@ typedef uint16_t SFPcrc;
 /* Must be kept in sync with SFPcrc's size. */
 #define sfpByteSwapCRC netByteOrder16
 
+typedef enum {
+  SFP_PACKET_RESET,
+  SFP_PACKET_USER
+} SFPpackettype;
+
 typedef struct SFPpacket {
+  SFPpackettype type;
   uint8_t buf[SFP_CONFIG_MAX_PACKET_SIZE];
   size_t len;
 } SFPpacket;
@@ -60,6 +66,11 @@ typedef enum {
   SFP_WRITE_ONE,
   SFP_WRITE_MULTIPLE
 } SFPwritetype;
+
+typedef enum {
+  SFP_CONNECT_STATE_CONNECTED,
+  SFP_CONNECT_STATE_DISCONNECTED
+} SFPconnectstate;
 
 typedef struct SFPtransmitter {
   SFPseq seq;
@@ -101,6 +112,8 @@ typedef struct SFPcontext {
   SFPtransmitter tx;
   SFPreceiver rx;
 
+  SFPconnectstate connectState;
+
 #ifdef SFP_DEBUG
   char debugName[SFP_CONFIG_MAX_DEBUG_NAME_SIZE];
 #endif
@@ -108,7 +121,10 @@ typedef struct SFPcontext {
 
 void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet);
 void sfpWritePacket (SFPcontext *ctx, SFPpacket *packet);
+void sfpConnect (SFPcontext *ctx);
+
 void sfpInit (SFPcontext *ctx);
+
 void sfpSetDeliverCallback (SFPcontext *ctx, SFPdeliverfun cbfun, void *userdata);
 void sfpSetWriteCallback (SFPcontext *ctx, SFPwritetype type, void *cbfun, void *userdata);
 void sfpSetLockCallback (SFPcontext *ctx, SFPlockfun cbfun, void *userdata);
@@ -120,15 +136,17 @@ enum {
   SFP_FLAG = 0x7e
 };
 
-#define SFP_ESC_FLIP_BIT 0x10 // the fifth bit, like in HDLC
-#define SFP_NAK_BIT 0x80
-#define SFP_SEQ_RANGE SFP_NAK_BIT
+#define SFP_ESC_FLIP_BIT (1<<4) // the fifth bit, like in HDLC
+
+#define SFP_NAK_BIT (1<<7)
+#define SFP_RESET_BIT (1<<6)
+#define SFP_RETX_BIT (1<<5)
+#define SFP_SEQ_RANGE SFP_RETX_BIT
 
 #define SFP_CRC_SIZE sizeof(SFPcrc)
 
 #define SFP_CRC_PRESET 0xffff   /* The initial value for the CRC, recommended
                                  * by an article in Dr. Dobb's Journal */
 #define SFP_INITIAL_SEQ 0
-
 
 #endif

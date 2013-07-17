@@ -25,9 +25,11 @@ static SFPseq sfpNextSeq (SFPseq seq);
 static void sfpBufferedWrite (uint8_t octet, void *ctx);
 static void sfpFlushWriteBuffer (SFPcontext *ctx);
 
-static void sfpWriteFrameWithSeq (SFPcontext *ctx, SFPseq seq, SFPpacket *packet);
-static void sfpWriteControlFrame (SFPcontext *ctx, SFPheader header);
-static void sfpWriteUserFrame (SFPcontext *ctx, SFPpacket *packet);
+static void sfpClearHistory (SFPcontext *ctx);
+static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpacket *packet);
+static void sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retransmit);
+static void sfpTransmitFrame (SFPcontext *ctx, SFPpacket *packet);
+static void sfpRetransmitFrame (SFPcontext *ctx, SFPpacket *packet);
 static void sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet);
 static void sfpWrite (SFPcontext *ctx, uint8_t octet);
 static int sfpIsTransmitterLockable (SFPcontext *ctx);
@@ -36,10 +38,11 @@ static const char *sfpEscapeStateToString (SFPescapestate s);
 static const char *sfpFrameStateToString (SFPframestate s);
 static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out);
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet);
-static void sfpHandleNAK (SFPcontext *ctx, SFPseq seq);
+static void sfpHandleReset (SFPcontext *ctx);
+static void sfpHandleNonNAK (SFPcontext *ctx);
+static void sfpHandleNAK (SFPcontext *ctx);
+static void sfpFastForwardAndRetransmitHistory (SFPcontext *ctx, SFPseq seq);
 static void sfpSendNAK (SFPcontext *ctx);
-static void sfpHandleControlFrame (SFPcontext *ctx);
-static void sfpTryDeliverUserFrame (SFPcontext *ctx);
 static void sfpResetReceiver (SFPcontext *ctx);
 static void sfpTryDeliverFrame (SFPcontext *ctx);
 
@@ -49,6 +52,8 @@ void sfpInit (SFPcontext *ctx) {
 #ifdef SFP_DEBUG
   ctx->debugName[0] = '\0';
 #endif
+
+  ctx->connectState = SFP_CONNECT_STATE_DISCONNECTED;
 
   ////////////////////////////////////////////////////////////////////////////
 
@@ -70,6 +75,32 @@ void sfpInit (SFPcontext *ctx) {
   sfpSetUnlockCallback(ctx, NULL, NULL);
 
   RINGBUF_INIT(ctx->tx.history);
+}
+
+static void sfpClearHistory (SFPcontext *ctx) {
+  while (!RINGBUF_EMPTY(ctx->tx.history)) {
+    RINGBUF_POP_FRONT(ctx->tx.history);
+  }
+}
+
+void sfpConnect (SFPcontext *ctx) {
+  if (sfpIsTransmitterLockable(ctx)) {
+    ctx->tx.lock(ctx->tx.lockData);
+  }
+
+  ctx->connectState = SFP_CONNECT_STATE_DISCONNECTED;
+  ctx->tx.seq = 0;
+  sfpClearHistory(ctx);
+
+  SFPpacket pkt;
+  pkt.type = SFP_PACKET_RESET;
+  pkt.len = 0;
+
+  sfpTransmitFrame(ctx, &pkt);
+
+  if (sfpIsTransmitterLockable(ctx)) {
+    ctx->tx.unlock(ctx->tx.unlockData);
+  }
 }
 
 #ifdef SFP_DEBUG
@@ -148,7 +179,6 @@ void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet) {
 #endif
 #endif
 
-
     if (SFP_FRAME_STATE_NEW == ctx->rx.frameState) {
       /* We are receiving the header. */
 
@@ -177,8 +207,7 @@ void sfpWritePacket (SFPcontext *ctx, SFPpacket *packet) {
     ctx->tx.lock(ctx->tx.lockData);
   }
 
-  RINGBUF_PUSH_BACK(ctx->tx.history, *packet);
-  sfpWriteUserFrame(ctx, packet);
+  sfpTransmitFrame(ctx, packet);
 
   if (sfpIsTransmitterLockable(ctx)) {
     ctx->tx.unlock(ctx->tx.unlockData);
@@ -228,80 +257,109 @@ static void sfpTryDeliverFrame (SFPcontext *ctx) {
   fflush(stderr);
 #endif
 
-  if (0 == ctx->rx.packet.len) {
-#ifdef SFP_DEBUG
-    fprintf(stderr, "(sfp) DEBUG(%s): received control frame\n", ctx->debugName);
-#endif
-
-    if (crc != ctx->rx.crc) {
+  if (crc != ctx->rx.crc) {
 #ifdef SFP_WARN
-      fprintf(stderr, "(sfp) WARNING: CRC mismatch, ignoring.\n");
+    fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
 #endif
-      return;
-    }
+    sfpSendNAK(ctx);
+    return;
+  }
 
-    sfpHandleControlFrame(ctx);
+  if (!(SFP_NAK_BIT & ctx->rx.header)) {
+    sfpHandleNonNAK(ctx);
+  }
+  else {
+    /* NAKs are special, because they are not subject to SEQ number
+     * verification. */
+#ifdef SFP_WARN
+    if (0 != ctx->rx.packet.len) {
+      fprintf(stderr, "(sfp) WARNING: received non-zero-length NAK.\n");
+    }
+#endif
+    sfpHandleNAK(ctx);
+  }
+}
+
+static void sfpHandleNonNAK (SFPcontext *ctx) {
+  if ((ctx->rx.header & (SFP_SEQ_RANGE - 1)) != ctx->rx.seq) {
+    if (!(SFP_RETX_BIT & ctx->rx.header)) {
+#ifdef SFP_WARN
+      fprintf(stderr, "(sfp) WARNING: out-of-order frame received, sending NAK.\n");
+#endif
+      sfpSendNAK(ctx);
+    }
+    else {
+#ifdef SFP_WARN
+      fprintf(stderr, "(sfp) WARNING: out-of-order retransmitted frame received, ignoring.\n");
+#endif
+    }
+    return;
+  }
+  
+  ctx->rx.seq = sfpNextSeq(ctx->rx.seq);
+
+  if (SFP_RESET_BIT & ctx->rx.header) {
+#ifdef SFP_DEBUG
+    fprintf(stderr, "(sfp) DEBUG(%s): received reset frame\n", ctx->debugName);
+#endif
+#ifdef SFP_WARN
+    if (0 != ctx->rx.packet.len) {
+      fprintf(stderr, "(sfp) WARNING: received non-zero-length Reset.\n");
+    }
+#endif
+    sfpHandleReset(ctx);
   }
   else {
 #ifdef SFP_DEBUG
     fprintf(stderr, "(sfp) DEBUG(%s): received user frame\n", ctx->debugName);
 #endif
 
-    if (crc != ctx->rx.crc) {
-#ifdef SFP_WARN
-      fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
-#endif
-      sfpSendNAK(ctx);
-      return;
-    }
-
-    sfpTryDeliverUserFrame(ctx);
-  }
-}
-
-static void sfpTryDeliverUserFrame (SFPcontext *ctx) {
-  if ((ctx->rx.header & (SFP_SEQ_RANGE - 1)) == ctx->rx.seq) {
     /* Good frame received and accepted--deliver it.p */
     ctx->rx.deliver(&ctx->rx.packet, ctx->rx.deliverData);
-    ctx->rx.seq = sfpNextSeq(ctx->rx.seq);
-  }
-  else {
-#ifdef SFP_WARN
-    fprintf(stderr, "(sfp) WARNING: out-of-order frame received, sending NAK.\n");
-#endif
-    sfpSendNAK(ctx);
   }
 }
 
-static void sfpHandleControlFrame (SFPcontext *ctx) {
-  if (SFP_NAK_BIT & ctx->rx.header) {
-    SFPseq seq = ctx->rx.header & (SFP_SEQ_RANGE - 1);
+static void sfpHandleReset (SFPcontext *ctx) {
+  /* Called from receiver. */
+  if (sfpIsTransmitterLockable(ctx)) {
+    ctx->tx.lock(ctx->tx.lockData);
+  }
 
-    if (seq == ctx->tx.seq) {
-      /* The remote is telling us it expects the current sequence number, but
-       * received something different. This is fine, and probably just means
-       * that it received a frame that had to be retransmitted multiple
-       * times. This is unlikely to even happen on a USB line, since the
-       * bandwidth-delay product is so low. */
+  ctx->connectState = SFP_CONNECT_STATE_CONNECTED;
+  ctx->tx.seq = 0;
+
+  sfpClearHistory(ctx);
+  sfpTransmitFrameWithHeader(ctx, ctx->rx.seq | SFP_NAK_BIT, NULL);
+
+  if (sfpIsTransmitterLockable(ctx)) {
+    ctx->tx.unlock(ctx->tx.unlockData);
+  }
+}
+
+static void sfpHandleNAK (SFPcontext *ctx) {
+  SFPseq seq = ctx->rx.header & (SFP_SEQ_RANGE - 1);
+
+  if (seq == ctx->tx.seq) {
+    /* The remote is telling us it expects the current sequence number, but
+     * received something different. This is fine, and probably just means
+     * that it received a frame that had to be retransmitted multiple
+     * times. This is unlikely to even happen on a USB line, since the
+     * bandwidth-delay product is so low. */
 #ifdef SFP_DEBUG
-      fprintf(stderr, "(sfp) DEBUG(%s): received NAK<%d> for current SEQ. Ignoring.\n",
-          ctx->debugName, seq);
+    fprintf(stderr, "(sfp) DEBUG(%s): received NAK<%d> for current SEQ. Ignoring.\n",
+        ctx->debugName, seq);
 #endif
-    }
-    else {
-#ifdef SFP_WARN
-      fprintf(stderr, "(sfp) WARNING: current SEQ<%d>, remote host NAK'ed SEQ<%d>.\n",
-          ctx->tx.seq, seq);
-#endif
-      sfpHandleNAK(ctx, seq);
-    }
   }
   else {
 #ifdef SFP_WARN
-    fprintf(stderr, "(sfp) WARNING: unknown or corrupt control frame received, ignoring: 0x%x.\n",
-        ctx->rx.header);
+    fprintf(stderr, "(sfp) WARNING: current SEQ<%d>, remote host NAK'ed SEQ<%d>.\n",
+        ctx->tx.seq, seq);
 #endif
+    sfpFastForwardAndRetransmitHistory(ctx, seq);
   }
+
+  /* A NAK always indicates a successful connection. */
+  ctx->connectState = SFP_CONNECT_STATE_CONNECTED;
 }
 
 static void sfpSendNAK (SFPcontext *ctx) {
@@ -311,14 +369,14 @@ static void sfpSendNAK (SFPcontext *ctx) {
     ctx->tx.lock(ctx->tx.lockData);
   }
 
-  sfpWriteControlFrame(ctx, ctx->rx.seq | SFP_NAK_BIT);
+  sfpTransmitFrameWithHeader(ctx, ctx->rx.seq | SFP_NAK_BIT, NULL);
 
   if (sfpIsTransmitterLockable(ctx)) {
     ctx->tx.unlock(ctx->tx.unlockData);
   }
 }
 
-static void sfpHandleNAK (SFPcontext *ctx, SFPseq seq) {
+static void sfpFastForwardAndRetransmitHistory (SFPcontext *ctx, SFPseq seq) {
 
   /* XXX The receiver must lock the transmitter before sending anything! */
 
@@ -341,19 +399,21 @@ static void sfpHandleNAK (SFPcontext *ctx, SFPseq seq) {
       fastforward);
 #endif
 
-
   if (RINGBUF_SIZE(ctx->tx.history) > fastforward) {
     for (unsigned i = 0; i < fastforward; ++i) {
       RINGBUF_POP_FRONT(ctx->tx.history);
     }
   }
-  else {
+  else if (SFP_CONNECT_STATE_CONNECTED == ctx->connectState) {
     fprintf(stderr, "(sfp) ERROR: %d outgoing frame(s) lost by history buffer underrun.\n"
         "\tTry adjusting SFP_CONFIG_HISTORY_CAPACITY.\n", SFP_SEQ_RANGE - fastforward);
 
     /* Even if we lost frames, the show still has to go on. Resynchronize, and
      * send what frames we have available in our history. */
   }
+
+  /* If we're not yet connected, then this is just a natural part of
+   * synchronization. No error. */
 
   /* Synchronize our remote sequence number with the NAK. */
   ctx->tx.seq = seq;
@@ -365,7 +425,7 @@ static void sfpHandleNAK (SFPcontext *ctx, SFPseq seq) {
     fprintf(stderr, "(sfp) DEBUG(%s): retransmitting frame with SEQ<%d>\n",
         ctx->debugName, ctx->tx.seq);
 #endif
-    sfpWriteUserFrame(ctx, &RINGBUF_AT(ctx->tx.history, i));
+    sfpRetransmitFrame(ctx, &RINGBUF_AT(ctx->tx.history, i));
   }
 
   if (sfpIsTransmitterLockable(ctx)) {
@@ -406,6 +466,7 @@ static const char *sfpFrameStateToString (SFPframestate s) {
 #undef BUFSIZE
 
 static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
+#if 0
   fprintf(out, "(sfp) Receiver state:\n"
       "\tescape state: %s\n"
       "\tframe state: %s\n"
@@ -427,6 +488,7 @@ static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
   }
 
   fprintf(out, " | CRC<0x%04x>\n", ctx->rx.crc);
+#endif
 }
 
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet) {
@@ -487,24 +549,43 @@ static void sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet) {
   ctx->tx.write1(octet, ctx->tx.write1Data);
 }
 
-static void sfpWriteUserFrame (SFPcontext *ctx, SFPpacket *packet) {
-  sfpWriteFrameWithSeq(ctx, ctx->tx.seq, packet);
+
+
+static void sfpTransmitFrame (SFPcontext *ctx, SFPpacket *packet) {
+  sfpTransmitFrameImpl(ctx, packet, 0);
+}
+
+static void sfpRetransmitFrame (SFPcontext *ctx, SFPpacket *packet) {
+  sfpTransmitFrameImpl(ctx, packet, 1);
+}
+
+static void sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retransmit) {
+  SFPheader header = ctx->tx.seq;
+
+  if (SFP_PACKET_RESET == packet->type) {
+    header |= SFP_RESET_BIT;
+  }
+
+  if (retransmit) {
+    header |= SFP_RETX_BIT;
+  }
+  else {
+    RINGBUF_PUSH_BACK(ctx->tx.history, *packet);
+  }
+
+  sfpTransmitFrameWithHeader(ctx, header, packet);
   ctx->tx.seq = sfpNextSeq(ctx->tx.seq);
 }
 
-static void sfpWriteControlFrame (SFPcontext *ctx, SFPheader header) {
-  sfpWriteFrameWithSeq(ctx, header, NULL);
-}
-
-/* Provided separately from sfpWriteUserFrame so that the receiver can
+/* Provided separately from sfpTransmitFrame so that the receiver can
  * use it to send NAKs. */
-static void sfpWriteFrameWithSeq (SFPcontext *ctx, SFPseq seq, SFPpacket *packet) {
+static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpacket *packet) {
   ctx->tx.crc = SFP_CRC_PRESET;
 
   /* Begin frame. */
   ctx->tx.write1(SFP_FLAG, ctx->tx.write1Data);
 
-  sfpWrite(ctx, seq);
+  sfpWrite(ctx, header);
 
   if (packet) {
     for (size_t i = 0; i < packet->len; ++i) {
@@ -527,10 +608,12 @@ static void sfpWriteFrameWithSeq (SFPcontext *ctx, SFPseq seq, SFPpacket *packet
 
   sfpFlushWriteBuffer(ctx);
 
-  fprintf(stderr, "(sfp) Sent frame: %sSEQ<%d (0x%02x)> | ",
-      seq & SFP_NAK_BIT ? "SFP_NAK_BIT | " : "",
-      seq & (SFP_SEQ_RANGE - 1),
-      seq & (SFP_SEQ_RANGE - 1));
+  fprintf(stderr, "(sfp) Sent frame: %s%s%sSEQ<%d (0x%02x)> | ",
+      header & SFP_NAK_BIT ? "SFP_NAK_BIT | " : "",
+      header & SFP_RESET_BIT ? "SFP_RESET_BIT | " : "",
+      header & SFP_RETX_BIT ? "SFP_RETX_BIT | " : "",
+      header & (SFP_SEQ_RANGE - 1),
+      header & (SFP_SEQ_RANGE - 1));
 
   if (packet) {
     for (size_t i = 0; i < packet->len; ++i) {

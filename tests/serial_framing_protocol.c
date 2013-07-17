@@ -7,9 +7,9 @@
 
 #include <time.h>
 
-#define BYTES_IN_THE_PIPE 100
-#define CHANCE_OF_BIT_FLIP 0.02
-#define CHANCE_OF_BYTE_DROP 0.02
+#define BYTES_IN_THE_PIPE 50
+#define CHANCE_OF_BIT_FLIP 0
+#define CHANCE_OF_BYTE_DROP 0
 
 SFPcontext alice;
 SFPcontext bob;
@@ -91,6 +91,7 @@ int main () {
   sfpInit(&alice);
   sfpSetDeliverCallback(&alice, alice_deliver, NULL);
   sfpSetWriteCallback(&alice, SFP_WRITE_ONE, alice_write, NULL);
+  sfpConnect(&alice);
 
   sfpInit(&bob);
   sfpSetDeliverCallback(&bob, bob_deliver, NULL);
@@ -101,8 +102,10 @@ int main () {
   sfpSetDebugName(&bob, "bob");
 #endif
 
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 5; i++) {
     SFPpacket packet;
+    packet.type = SFP_PACKET_USER;
+
     packet.len = snprintf(packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Hi Bob! (%d)", i);
     sfpWritePacket(&alice, &packet);
 
