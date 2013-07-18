@@ -8,8 +8,8 @@
 #include <time.h>
 
 #define BYTES_IN_THE_PIPE 50
-#define CHANCE_OF_BIT_FLIP 0
-#define CHANCE_OF_BYTE_DROP 0
+#define CHANCE_OF_BIT_FLIP 0.0
+#define CHANCE_OF_BYTE_DROP 0.0
 
 SFPcontext alice;
 SFPcontext bob;
@@ -91,7 +91,6 @@ int main () {
   sfpInit(&alice);
   sfpSetDeliverCallback(&alice, alice_deliver, NULL);
   sfpSetWriteCallback(&alice, SFP_WRITE_ONE, alice_write, NULL);
-  sfpConnect(&alice);
 
   sfpInit(&bob);
   sfpSetDeliverCallback(&bob, bob_deliver, NULL);
@@ -102,20 +101,30 @@ int main () {
   sfpSetDebugName(&bob, "bob");
 #endif
 
-  for (int i = 0; i < 5; i++) {
-    SFPpacket packet;
-    packet.type = SFP_PACKET_USER;
+  sfpConnect(&alice);
 
-    packet.len = snprintf(packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Hi Bob! (%d)", i);
+  for (int i = 0; i < 20; i++) {
+    do {
+      alice_write('\x7e', NULL);
+      bob_write("\x7e", 1, NULL);
+      service_pipe(&alice2bob, &bob);
+      service_pipe(&bob2alice, &alice);
+    } while (!sfpIsConnected(&alice) || !sfpIsConnected(&bob));
+
+    SFPpacket packet;
+
+    packet.len = snprintf((char *)packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Hi Bob! (%d)", i);
     sfpWritePacket(&alice, &packet);
 
 #if 1
-    packet.len = snprintf(packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Shut up Alice! (%d)", i);
+    packet.len = snprintf((char *)packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Shut up Alice! (%d)", i);
     sfpWritePacket(&bob, &packet);
 #endif
 
-    service_pipe(&alice2bob, &bob);
-    service_pipe(&bob2alice, &alice);
+    if (13 == i) {
+      printf("!!!! ALICE RECONNECTING !!!!\n");
+      sfpConnect(&alice);
+    }
   }
 
   printf("!!!! FLUSHING PIPES !!!!\n");
