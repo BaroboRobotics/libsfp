@@ -6,10 +6,7 @@
 
 #include <stdlib.h>
 
-#define SFP_WARN
-#define SFP_DEBUG
-
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
 #ifndef SFP_CONFIG_MAX_DEBUG_NAME_SIZE
 #define SFP_CONFIG_MAX_DEBUG_NAME_SIZE 256
 #endif
@@ -151,7 +148,7 @@ typedef struct SFPcontext {
 
   SFPconnectstate connectState;
 
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
   char debugName[SFP_CONFIG_MAX_DEBUG_NAME_SIZE];
 #endif
 } SFPcontext;
@@ -168,7 +165,7 @@ void sfpSetWriteCallback (SFPcontext *ctx, SFPwritetype type, void *cbfun, void 
 void sfpSetLockCallback (SFPcontext *ctx, SFPlockfun cbfun, void *userdata);
 void sfpSetUnlockCallback (SFPcontext *ctx, SFPunlockfun cbfun, void *userdata);
 
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
 void sfpSetDebugName (SFPcontext *ctx, const char *name);
 #endif
 

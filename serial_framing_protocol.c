@@ -24,9 +24,12 @@ static int isReservedOctet (uint8_t octet);
 static SFPseq nextSeq (SFPseq seq);
 static SFPframetype getFrameType (SFPheader header);
 static SFPseq getFrameSeq (SFPheader header);
+#ifdef SFP_CONFIG_DEBUG
 static const char *escapeStateToString (SFPescapestate s);
 static const char *frameStateToString (SFPframestate s);
 static const char *connectStateToString (SFPconnectstate s);
+static const char *frameTypeToString (SFPframetype t);
+#endif
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -49,7 +52,9 @@ static int sfpIsTransmitterLockable (SFPcontext *ctx);
 static void sfpLockTransmitter (SFPcontext *ctx);
 static void sfpUnlockTransmitter (SFPcontext *ctx);
 
+#if 0
 static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out);
+#endif
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet);
 static void sfpHandleNAK (SFPcontext *ctx);
 static void sfpHandleUSR (SFPcontext *ctx);
@@ -66,7 +71,7 @@ static void sfpHandleFrame (SFPcontext *ctx);
 //////////////////////////////////////////////////////////////////////////////
 
 void sfpInit (SFPcontext *ctx) {
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
   ctx->debugName[0] = '\0';
 #endif
 
@@ -115,7 +120,7 @@ int sfpIsConnected (SFPcontext *ctx) {
   return SFP_CONNECT_STATE_CONNECTED == ctx->connectState;
 }
 
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
 void sfpSetDebugName (SFPcontext *ctx, const char *name) {
   assert(strlen(name) < SFP_CONFIG_MAX_DEBUG_NAME_SIZE);
   strcpy(ctx->debugName, name);
@@ -208,7 +213,7 @@ void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet) {
 
 /* Entry point for transmitter. */
 void sfpWritePacket (SFPcontext *ctx, SFPpacket *packet) {
-#ifdef SFP_WARN
+#ifdef SFP_CONFIG_WARN
   if (SFP_CONNECT_STATE_CONNECTED != ctx->connectState) {
     fprintf(stderr, "(sfp) WARNING: Attempting to send packet on disconnected link.\n");
   }
@@ -242,6 +247,8 @@ static SFPframetype getFrameType (SFPheader header) {
 static SFPseq getFrameSeq (SFPheader header) {
   return (header >> SFP_FIRST_SEQ_BIT) & ((1 << SFP_NUM_SEQ_BITS) - 1);
 }
+
+#ifdef SFP_CONFIG_DEBUG
 
 #define BUFSIZE 64
 static const char *escapeStateToString (SFPescapestate s) {
@@ -309,6 +316,8 @@ static const char *frameTypeToString (SFPframetype t) {
 }
 #undef BUFSIZE
 
+#endif /* SFP_CONFIG_DEBUG */
+
 //////////////////////////////////////////////////////////////////////////////
 
 static void sfpResetReceiver (SFPcontext *ctx) {
@@ -321,7 +330,7 @@ static void sfpResetReceiver (SFPcontext *ctx) {
 static void sfpHandleFrame (SFPcontext *ctx) {
   /* Verify the length. */
   if (SFP_CRC_SIZE > ctx->rx.packet.len) {
-#ifdef SFP_WARN
+#ifdef SFP_CONFIG_WARN
     fprintf(stderr, "(sfp) WARNING: short frame received, sending NAK.\n");
 #endif
     sfpLockTransmitter(ctx);
@@ -336,7 +345,7 @@ static void sfpHandleFrame (SFPcontext *ctx) {
   ctx->rx.packet.len -= SFP_CRC_SIZE;
 
   if (crc != ctx->rx.crc) {
-#ifdef SFP_WARN
+#ifdef SFP_CONFIG_WARN
     fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
 #endif
     sfpLockTransmitter(ctx);
@@ -345,7 +354,7 @@ static void sfpHandleFrame (SFPcontext *ctx) {
     return;
   }
 
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
   fprintf(stderr, "(sfp) DEBUG(%s): Received frame: (%s | SEQ<%d>) ",
       ctx->debugName,
       frameTypeToString(getFrameType(ctx->rx.header)),
@@ -422,7 +431,7 @@ static void sfpHandleUSR (SFPcontext *ctx) {
     SFPframetype type = getFrameType(ctx->rx.header);
 
     if (SFP_FRAME_USR == type) {
-#ifdef SFP_WARN
+#ifdef SFP_CONFIG_WARN
       fprintf(stderr, "(sfp) WARNING: out-of-order frame received, sending NAK.\n");
 #endif
       sfpLockTransmitter(ctx);
@@ -430,7 +439,7 @@ static void sfpHandleUSR (SFPcontext *ctx) {
       sfpUnlockTransmitter(ctx);
     }
     else {
-#ifdef SFP_WARN
+#ifdef SFP_CONFIG_WARN
       fprintf(stderr, "(sfp) WARNING: out-of-order retransmitted frame received, ignoring.\n");
 #endif
     }
@@ -463,7 +472,7 @@ static void sfpHandleSYN1 (SFPcontext *ctx) {
       sfpTransmitHistoryFromSeq(ctx, SFP_INITIAL_SEQ);
     }
     ctx->connectState = SFP_CONNECT_STATE_CONNECTED;
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
     fprintf(stderr, "(sfp) DEBUG(%s): Connected!\n", ctx->debugName);
 #endif
   }
@@ -481,7 +490,7 @@ static void sfpHandleSYN2 (SFPcontext *ctx) {
       sfpTransmitHistoryFromSeq(ctx, SFP_INITIAL_SEQ);
     }
     ctx->connectState = SFP_CONNECT_STATE_CONNECTED;
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
     fprintf(stderr, "(sfp) DEBUG(%s): Connected!\n", ctx->debugName);
 #endif
   }
@@ -508,7 +517,7 @@ static void sfpHandleNAK (SFPcontext *ctx) {
 
   SFPseq seq = getFrameSeq(ctx->rx.header);
 
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
     fprintf(stderr, "(sfp) DEBUG(%s): received NAK<%d> for SEQ<%d>.\n",
         ctx->debugName, seq, ctx->tx.seq);
 #endif
@@ -571,8 +580,10 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
     }
   }
   else {
+#ifdef SFP_CONFIG_ERROR
     fprintf(stderr, "(sfp) ERROR: %d outgoing frame(s) lost by history buffer underrun.\n"
         "\tTry adjusting SFP_CONFIG_HISTORY_CAPACITY.\n", SFP_SEQ_RANGE - fastforward);
+#endif
 
     /* Even if we lost frames, the show still has to go on. Resynchronize, and
      * send what frames we have available in our history. */
@@ -600,8 +611,8 @@ static void sfpClearHistory (SFPcontext *ctx) {
 
 //////////////////////////////////////////////////////////////////////////////
 
-static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
 #if 0
+static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
   fprintf(out, "(sfp) Receiver state:\n"
       "\tescape state: %s\n"
       "\tframe state: %s\n"
@@ -623,16 +634,16 @@ static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
   }
 
   fprintf(out, " | CRC<0x%04x>\n", ctx->rx.crc);
-#endif
 }
+#endif
 
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet) {
   if (SFP_CONFIG_MAX_PACKET_SIZE <= ctx->rx.packet.len) {
+#ifdef SFP_CONFIG_ERROR
     fprintf(stderr, "(sfp) ERROR: incoming frame(s) lost by frame buffer overrun.\n"
         "\tTry increasing SFP_CONFIG_MAX_PACKET_SIZE.\n"
         "\tThis could also be caused by a corrupt FLAG octet.\n");
-
-    sfpPrintReceiverState(ctx, stderr);
+#endif
 
     /* Until I have a better idea, just going to pretend we didn't receive
      * anything at all, and just go on with life. If this was caused by a
@@ -756,7 +767,7 @@ static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpa
 
   sfpFlushWriteBuffer(ctx);
 
-#ifdef SFP_DEBUG
+#ifdef SFP_CONFIG_DEBUG
   fprintf(stderr, "(sfp) DEBUG(%s): Sent frame: (%s | SEQ<%d>) ",
       ctx->debugName,
       frameTypeToString(getFrameType(header)),
