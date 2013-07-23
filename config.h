@@ -5,9 +5,9 @@
 #undef SFP_CONFIG_WARN
 #undef SFP_CONFIG_ERROR
 
-#define SFP_CONFIG_DEBUG
-#define SFP_CONFIG_WARN
-#define SFP_CONFIG_ERROR
+//#define SFP_CONFIG_DEBUG
+//#define SFP_CONFIG_WARN
+//#define SFP_CONFIG_ERROR
 
 #if 0
 /* Other configurables. */

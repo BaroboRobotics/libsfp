@@ -15,7 +15,7 @@
 
 #ifndef SFP_CONFIG_HISTORY_CAPACITY
 /* Must be a power of two for use in the ring buffer. */
-#define SFP_CONFIG_HISTORY_CAPACITY 32
+#define SFP_CONFIG_HISTORY_CAPACITY 16
 #endif
 
 #ifndef SFP_CONFIG_MAX_PACKET_SIZE
