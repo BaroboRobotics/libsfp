@@ -1,6 +1,7 @@
-#ifndef _SERIAL_FRAMING_PROTOCOL_H_
-#define _SERIAL_FRAMING_PROTOCOL_H_
+#ifndef _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
+#define _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 
+#include "config.h"
 #include "net_byte_order.h"
 #include "ringbuf.h"
 
@@ -14,7 +15,7 @@
 
 #ifndef SFP_CONFIG_HISTORY_CAPACITY
 /* Must be a power of two for use in the ring buffer. */
-#define SFP_CONFIG_HISTORY_CAPACITY (1<<4)
+#define SFP_CONFIG_HISTORY_CAPACITY 32
 #endif
 
 #ifndef SFP_CONFIG_MAX_PACKET_SIZE
@@ -22,7 +23,7 @@
 #endif
 
 #ifndef SFP_CONFIG_WRITEBUF_SIZE
-#define SFP_CONFIG_WRITEBUF_SIZE 256
+#define SFP_CONFIG_WRITEBUF_SIZE 512
 #endif
 
 typedef uint8_t SFPseq;
