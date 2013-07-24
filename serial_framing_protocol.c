@@ -189,23 +189,15 @@ void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet) {
       ctx->rx.escapeState = SFP_ESCAPE_STATE_NORMAL;
     }
 
+    ctx->rx.crc = _crc_ccitt_update(ctx->rx.crc, octet);
+
     if (SFP_FRAME_STATE_NEW == ctx->rx.frameState) {
       /* We are receiving the header. */
-
-      ctx->rx.crc = _crc_ccitt_update(ctx->rx.crc, octet);
       ctx->rx.header = octet;
       ctx->rx.frameState = SFP_FRAME_STATE_RECEIVING;
     }
     else {
-      /* We are receiving the payload. Since the CRC will be indistinguishable
-       * from the rest of the payload until we receive the terminating FLAG
-       * octet, we put the CRC calculation on a delay of SFP_CRC_SIZE octets. */
-
-      if (SFP_CRC_SIZE <= ctx->rx.packet.len) {
-        ctx->rx.crc = _crc_ccitt_update(ctx->rx.crc,
-            ctx->rx.packet.buf[ctx->rx.packet.len - SFP_CRC_SIZE]);
-      }
-
+      /* We are receiving the payload. */
       sfpBufferOctet(ctx, octet);
     }
   }
@@ -339,12 +331,11 @@ static void sfpHandleFrame (SFPcontext *ctx) {
     return;
   }
 
-  /* Verify the CRC. */
-  uint8_t *pcrc = &ctx->rx.packet.buf[ctx->rx.packet.len - SFP_CRC_SIZE];
-  SFPcrc crc = sfpByteSwapCRC(*(SFPcrc *)pcrc);
+  /* Now that the length is verified, we can rewind over the CRC. */
   ctx->rx.packet.len -= SFP_CRC_SIZE;
 
-  if (crc != ctx->rx.crc) {
+  /* Verify the CRC. */
+  if (SFP_CRC_GOOD != ctx->rx.crc) {
 #ifdef SFP_CONFIG_WARN
     fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
 #endif
@@ -355,17 +346,15 @@ static void sfpHandleFrame (SFPcontext *ctx) {
   }
 
 #ifdef SFP_CONFIG_DEBUG
-  fprintf(stderr, "(sfp) DEBUG(%s): Received frame: (%s | SEQ<%d>) ",
+  fprintf(stderr, "(sfp) DEBUG(%s): Received frame: (%s | SEQ<%d>) |",
       ctx->debugName,
       frameTypeToString(getFrameType(ctx->rx.header)),
       getFrameSeq(ctx->rx.header));
 
-  fprintf(stderr, "| ");
   for (size_t i = 0; i < ctx->rx.packet.len; ++i) {
-    fprintf(stderr, "%02x ", ctx->rx.packet.buf[i]);
+    fprintf(stderr, " %02x", ctx->rx.packet.buf[i]);
   }
-
-  fprintf(stderr, "| CRC<0x%04x>\n", crc);
+  fprintf(stderr, "\n");
 #endif
 
   /* And finally, handle the frame if it all checks out. */
@@ -752,14 +741,17 @@ static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpa
     }
   }
 
-  SFPcrc crc = sfpByteSwapCRC(ctx->tx.crc);
-  uint8_t *pcrc = (uint8_t *)&crc;
+  /* Send the complement of the CRC, similar to how PPP, HDLC do it. */
+  SFPcrc crc = ~ctx->tx.crc;
 
   for (size_t i = 0; i < sizeof(crc); ++i) {
     /* At first glance, this might seem bizarre. The "NoCRC" bit simply means
      * that the transmitter's rolling CRC will not be updated by the octet we
-     * pass. We don't need to CRC the CRC itself. */
-    sfpWriteNoCRC(ctx, pcrc[i]);
+     * pass. We don't need to CRC the CRC itself. We write the CRC least
+     * significant octet first, so that it is checked correctly on the other
+     * end. */
+    sfpWriteNoCRC(ctx, crc & 0x00ff);
+    crc >>= 8;
   }
 
   /* End frame. */
@@ -779,8 +771,7 @@ static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpa
       fprintf(stderr, "%02x ", packet->buf[i]);
     }
   }
-
-  fprintf(stderr, "| CRC<0x%04x>\n", crc);
+  fprintf(stderr, "\n");
 #endif
 }
 
