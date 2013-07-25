@@ -33,21 +33,21 @@ static const char *frameTypeToString (SFPframetype t);
 
 //////////////////////////////////////////////////////////////////////////////
 
-static void sfpBufferedWrite (uint8_t octet, void *ctx);
+static ssize_t sfpBufferedWrite (uint8_t octet, void *ctx);
 static void sfpFlushWriteBuffer (SFPcontext *ctx);
 
 static void sfpClearHistory (SFPcontext *ctx);
-static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpacket *packet);
-static void sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retransmit);
+static ssize_t sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpacket *packet);
+static ssize_t sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retransmit);
 static void sfpTransmitDIS (SFPcontext *ctx);
 static void sfpTransmitSYN0 (SFPcontext *ctx);
 static void sfpTransmitSYN1 (SFPcontext *ctx);
 static void sfpTransmitSYN2 (SFPcontext *ctx);
 static void sfpTransmitNAK (SFPcontext *ctx, SFPseq seq);
-static void sfpTransmitUSR (SFPcontext *ctx, SFPpacket *packet);
+static ssize_t sfpTransmitUSR (SFPcontext *ctx, SFPpacket *packet);
 static void sfpTransmitRTX (SFPcontext *ctx, SFPpacket *packet);
-static void sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet);
-static void sfpWrite (SFPcontext *ctx, uint8_t octet);
+static ssize_t sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet);
+static ssize_t sfpWrite (SFPcontext *ctx, uint8_t octet);
 static int sfpIsTransmitterLockable (SFPcontext *ctx);
 static void sfpLockTransmitter (SFPcontext *ctx);
 static void sfpUnlockTransmitter (SFPcontext *ctx);
@@ -57,7 +57,7 @@ static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out);
 #endif
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet);
 static void sfpHandleNAK (SFPcontext *ctx);
-static void sfpHandleUSR (SFPcontext *ctx);
+static int sfpHandleUSR (SFPcontext *ctx);
 static void sfpHandleSYN (SFPcontext *ctx);
 static void sfpHandleSYN0 (SFPcontext *ctx);
 static void sfpHandleSYN1 (SFPcontext *ctx);
@@ -66,7 +66,8 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq);
 static void sfpTransmitHistory (SFPcontext *ctx);
 static void sfpTransmitNAK (SFPcontext *ctx, SFPseq seq);
 static void sfpResetReceiver (SFPcontext *ctx);
-static void sfpHandleFrame (SFPcontext *ctx);
+static int sfpHandleFrame (SFPcontext *ctx);
+static ssize_t sfpCopyOutPacket (SFPcontext *ctx, uint8_t *buf, size_t len);
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -167,11 +168,18 @@ void sfpSetUnlockCallback (SFPcontext *ctx, SFPunlockfun cbfun, void *userdata) 
   ctx->tx.unlockData = userdata;
 }
 
-/* Entry point for receiver. */
-void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet) {
+/* Entry point for receiver. Returns -1 on error, 0 on no error, no buf
+ * modification, and > 0 if a packet was written into buf. If buf is NULL, no
+ * data will be written to buf, and you must rely on the deliver callback. */
+ssize_t sfpDeliverOctet (SFPcontext *ctx, uint8_t octet, uint8_t *buf, size_t len) {
+  ssize_t ret = 0;
+
   if (SFP_FLAG == octet) {
     if (SFP_FRAME_STATE_RECEIVING == ctx->rx.frameState) {
-      sfpHandleFrame(ctx);
+      ret = sfpHandleFrame(ctx);
+      if (ret && buf) {
+        ret = sfpCopyOutPacket(ctx, buf, len);
+      }
     }
     /* If we receive a FLAG while in FRAME_STATE_NEW, this means we have
      * received back-to-back FLAG octets. This is a heartbeat/keepalive, and we
@@ -201,18 +209,30 @@ void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet) {
       sfpBufferOctet(ctx, octet);
     }
   }
+
+  return ret;
 }
 
 /* Entry point for transmitter. */
-void sfpWritePacket (SFPcontext *ctx, SFPpacket *packet) {
+ssize_t sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len) {
 #ifdef SFP_CONFIG_WARN
   if (SFP_CONNECT_STATE_CONNECTED != ctx->connectState) {
     fprintf(stderr, "(sfp) WARNING: Attempting to send packet on disconnected link.\n");
   }
 #endif
+  assert(SFP_CONFIG_MAX_PACKET_SIZE >= len);
+
+  /* TODO maybe get rid of SFPpacket altogether? Would be more annoying to
+   * pass buf and len through everything, but would speed this up for sure. */
+  SFPpacket packet;
+  memcpy(packet.buf, buf, len);
+  packet.len = len;
+
   sfpLockTransmitter(ctx);
-  sfpTransmitUSR(ctx, packet);
+  ssize_t ret = sfpTransmitUSR(ctx, &packet);
   sfpUnlockTransmitter(ctx);
+
+  return ret;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -319,7 +339,7 @@ static void sfpResetReceiver (SFPcontext *ctx) {
   ctx->rx.packet.len = 0;
 }
 
-static void sfpHandleFrame (SFPcontext *ctx) {
+static int sfpHandleFrame (SFPcontext *ctx) {
   /* Verify the length. */
   if (SFP_CRC_SIZE > ctx->rx.packet.len) {
 #ifdef SFP_CONFIG_WARN
@@ -328,7 +348,7 @@ static void sfpHandleFrame (SFPcontext *ctx) {
     sfpLockTransmitter(ctx);
     sfpTransmitNAK(ctx, ctx->rx.seq);
     sfpUnlockTransmitter(ctx);
-    return;
+    return 0;
   }
 
   /* Now that the length is verified, we can rewind over the CRC. */
@@ -342,7 +362,7 @@ static void sfpHandleFrame (SFPcontext *ctx) {
     sfpLockTransmitter(ctx);
     sfpTransmitNAK(ctx, ctx->rx.seq);
     sfpUnlockTransmitter(ctx);
-    return;
+    return 0;
   }
 
 #ifdef SFP_CONFIG_DEBUG
@@ -357,6 +377,8 @@ static void sfpHandleFrame (SFPcontext *ctx) {
   fprintf(stderr, "\n");
 #endif
 
+  int ret = 0;
+
   /* And finally, handle the frame if it all checks out. */
   SFPframetype type = getFrameType(ctx->rx.header);
 
@@ -368,7 +390,7 @@ static void sfpHandleFrame (SFPcontext *ctx) {
     case SFP_FRAME_USR:
       /* fall-through */
     case SFP_FRAME_RTX:
-      sfpHandleUSR(ctx);
+      ret = sfpHandleUSR(ctx);
       break;
     case SFP_FRAME_NAK:
       sfpLockTransmitter(ctx);
@@ -385,10 +407,22 @@ static void sfpHandleFrame (SFPcontext *ctx) {
       /* error: unknown frame type */
       break;
   }
+
+  return ret;
+}
+
+static ssize_t sfpCopyOutPacket (SFPcontext *ctx, uint8_t *buf, size_t len) {
+  if (len < ctx->rx.packet.len) {
+    return -1;
+  }
+  else {
+    memcpy(buf, ctx->rx.packet.buf, ctx->rx.packet.len);
+    return ctx->rx.packet.len;
+  }
 }
 
 /* Handle user frame. */
-static void sfpHandleUSR (SFPcontext *ctx) {
+static int sfpHandleUSR (SFPcontext *ctx) {
   assert(SFP_FRAME_USR == getFrameType(ctx->rx.header)
       || SFP_FRAME_RTX == getFrameType(ctx->rx.header));
 
@@ -397,22 +431,24 @@ static void sfpHandleUSR (SFPcontext *ctx) {
       sfpLockTransmitter(ctx);
       sfpTransmitDIS(ctx);
       sfpUnlockTransmitter(ctx);
-      return;
+      return 0;
     case SFP_CONNECT_STATE_SENT_SYN0:
       sfpLockTransmitter(ctx);
       sfpTransmitSYN0(ctx);
       sfpUnlockTransmitter(ctx);
-      return;
+      return 0;
     case SFP_CONNECT_STATE_SENT_SYN1:
       sfpLockTransmitter(ctx);
       sfpTransmitSYN1(ctx);
       sfpUnlockTransmitter(ctx);
-      return;
+      return 0;
     case SFP_CONNECT_STATE_CONNECTED:
       /* fall-through */
     default:
       break;
   }
+
+  int ret = 0;
 
   SFPseq seq = getFrameSeq(ctx->rx.header);
 
@@ -435,9 +471,14 @@ static void sfpHandleUSR (SFPcontext *ctx) {
   }
   else {
     /* Good user frame received and accepted--deliver it. */
-    ctx->rx.deliver(&ctx->rx.packet, ctx->rx.deliverData);
+    if (ctx->rx.deliver) {
+      ctx->rx.deliver(&ctx->rx.packet, ctx->rx.deliverData);
+    }
     ctx->rx.seq = nextSeq(ctx->rx.seq);
+    ret = 1;
   }
+
+  return ret;
 }
 
 static void sfpHandleSYN0 (SFPcontext *ctx) {
@@ -652,18 +693,21 @@ static int sfpIsTransmitterLockable (SFPcontext *ctx) {
 
 /* Wrapper around ctx->write1, updating the rolling CRC and escaping
  * reserved octets as necessary. */
-static void sfpWrite (SFPcontext *ctx, uint8_t octet) {
+static ssize_t sfpWrite (SFPcontext *ctx, uint8_t octet) {
+  ssize_t n = 0;
   ctx->tx.crc = _crc_ccitt_update(ctx->tx.crc, octet);
 
-  sfpWriteNoCRC(ctx, octet);
+  n += sfpWriteNoCRC(ctx, octet);
 }
 
-static void sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet) {
+static ssize_t sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet) {
+  ssize_t n = 0;
   if (isReservedOctet(octet)) {
     octet ^= SFP_ESC_FLIP_BIT;
-    ctx->tx.write1(SFP_ESC, ctx->tx.write1Data);
+    n += ctx->tx.write1(SFP_ESC, ctx->tx.write1Data);
   }
-  ctx->tx.write1(octet, ctx->tx.write1Data);
+  n += ctx->tx.write1(octet, ctx->tx.write1Data);
+  return n;
 }
 
 static void sfpTransmitNAK (SFPcontext *ctx, SFPseq seq) {
@@ -701,15 +745,15 @@ static void sfpTransmitSYN2 (SFPcontext *ctx) {
   sfpTransmitFrameWithHeader(ctx, header, NULL);
 }
 
-static void sfpTransmitUSR (SFPcontext *ctx, SFPpacket *packet) {
-  sfpTransmitFrameImpl(ctx, packet, 0);
+static ssize_t sfpTransmitUSR (SFPcontext *ctx, SFPpacket *packet) {
+  return sfpTransmitFrameImpl(ctx, packet, 0);
 }
 
 static void sfpTransmitRTX (SFPcontext *ctx, SFPpacket *packet) {
   sfpTransmitFrameImpl(ctx, packet, 1);
 }
 
-static void sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retransmit) {
+static ssize_t sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retransmit) {
   SFPheader header = ctx->tx.seq << SFP_FIRST_SEQ_BIT;
 
   if (retransmit) {
@@ -721,23 +765,27 @@ static void sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, int retran
     RINGBUF_PUSH_BACK(ctx->tx.history, *packet);
   }
 
-  sfpTransmitFrameWithHeader(ctx, header, packet);
+  ssize_t ret = sfpTransmitFrameWithHeader(ctx, header, packet);
   ctx->tx.seq = nextSeq(ctx->tx.seq);
+
+  return ret;
 }
 
 /* Provided separately from sfpTransmitFrame so that the receiver can
  * use it to send control frames. */
-static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpacket *packet) {
+static ssize_t sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpacket *packet) {
+  ssize_t octets_written = 0;
+
   ctx->tx.crc = SFP_CRC_PRESET;
 
   /* Begin frame. */
-  ctx->tx.write1(SFP_FLAG, ctx->tx.write1Data);
+  octets_written += ctx->tx.write1(SFP_FLAG, ctx->tx.write1Data);
 
-  sfpWrite(ctx, header);
+  octets_written += sfpWrite(ctx, header);
 
   if (packet) {
     for (size_t i = 0; i < packet->len; ++i) {
-      sfpWrite(ctx, packet->buf[i]);
+      octets_written += sfpWrite(ctx, packet->buf[i]);
     }
   }
 
@@ -750,12 +798,12 @@ static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpa
      * pass. We don't need to CRC the CRC itself. We write the CRC least
      * significant octet first, so that it is checked correctly on the other
      * end. */
-    sfpWriteNoCRC(ctx, crc & 0x00ff);
+    octets_written += sfpWriteNoCRC(ctx, crc & 0x00ff);
     crc >>= 8;
   }
 
   /* End frame. */
-  ctx->tx.write1(SFP_FLAG, ctx->tx.write1Data);
+  octets_written += ctx->tx.write1(SFP_FLAG, ctx->tx.write1Data);
 
   sfpFlushWriteBuffer(ctx);
 
@@ -773,6 +821,8 @@ static void sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpa
   }
   fprintf(stderr, "\n");
 #endif
+
+  return octets_written;
 }
 
 static void sfpFlushWriteBuffer (SFPcontext *ctx) {
@@ -785,7 +835,7 @@ static void sfpFlushWriteBuffer (SFPcontext *ctx) {
   }
 }
 
-static void sfpBufferedWrite (uint8_t octet, void *data) {
+static ssize_t sfpBufferedWrite (uint8_t octet, void *data) {
   SFPcontext *ctx = (SFPcontext *)data;
 
   /* If we're in this function, that means we're using SFP_WRITE_MULTIPLE,
@@ -797,4 +847,6 @@ static void sfpBufferedWrite (uint8_t octet, void *data) {
   }
 
   ctx->tx.writebuf[ctx->tx.writebufn++] = octet;
+
+  return 1;
 }

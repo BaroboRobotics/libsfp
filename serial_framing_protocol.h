@@ -81,8 +81,8 @@ typedef struct SFPpacket {
 } SFPpacket;
 
 typedef void (*SFPdeliverfun) (SFPpacket *packet, void *userdata);
-typedef void (*SFPwrite1fun) (uint8_t octet, void *userdata);
-typedef void (*SFPwritenfun) (uint8_t *octets, size_t len, void *userdata);
+typedef ssize_t (*SFPwrite1fun) (uint8_t octet, void *userdata);
+typedef ssize_t (*SFPwritenfun) (uint8_t *octets, size_t len, void *userdata);
 typedef void (*SFPlockfun) (void *userdata);
 typedef void (*SFPunlockfun) (void *userdata);
 
@@ -155,8 +155,9 @@ typedef struct SFPcontext {
 #endif
 } SFPcontext;
 
-void sfpDeliverOctet (SFPcontext *ctx, uint8_t octet);
-void sfpWritePacket (SFPcontext *ctx, SFPpacket *packet);
+/* Return 1 on packet available, 0 on unavailable. */
+ssize_t sfpDeliverOctet (SFPcontext *ctx, uint8_t octet, uint8_t *buf, size_t len);
+ssize_t sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len);
 void sfpConnect (SFPcontext *ctx);
 int sfpIsConnected (SFPcontext *ctx);
 
