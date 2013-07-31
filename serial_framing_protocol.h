@@ -155,7 +155,7 @@ typedef struct SFPcontext {
 #endif
 } SFPcontext;
 
-/* Return 1 on packet available, 0 on unavailable. */
+/* Return 1 on packet available, 0 on unavailable, -1 on error. */
 int sfpDeliverOctet (SFPcontext *ctx, uint8_t octet, uint8_t *buf, size_t len, size_t *outlen);
 int sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len, size_t *outlen);
 void sfpConnect (SFPcontext *ctx);
