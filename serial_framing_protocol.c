@@ -607,7 +607,8 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
   fastforward &= (SFP_SEQ_RANGE - 1);
 
   if (RINGBUF_SIZE(ctx->tx.history) > fastforward) {
-    for (unsigned i = 0; i < fastforward; ++i) {
+    unsigned i;
+    for (i = 0; i < fastforward; ++i) {
       RINGBUF_POP_FRONT(ctx->tx.history);
     }
   }
@@ -630,7 +631,8 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
 static void sfpTransmitHistory (SFPcontext *ctx) {
   size_t reTxCount = RINGBUF_SIZE(ctx->tx.history);
 
-  for (size_t i = 0; i < reTxCount; ++i) {
+  size_t i;
+  for (i = 0; i < reTxCount; ++i) {
     sfpTransmitRTX(ctx, &RINGBUF_AT(ctx->tx.history, i));
   }
 }
@@ -807,7 +809,8 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
   *outlen += n;
 
   if (packet) {
-    for (size_t i = 0; i < packet->len; ++i) {
+    size_t i;
+    for (i = 0; i < packet->len; ++i) {
       sfpWrite(ctx, packet->buf[i], &n);
       *outlen += n;
     }
@@ -816,7 +819,8 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
   /* Send the complement of the CRC, similar to how PPP, HDLC do it. */
   SFPcrc crc = ~ctx->tx.crc;
 
-  for (size_t i = 0; i < sizeof(crc); ++i) {
+  size_t i;
+  for (i = 0; i < sizeof(crc); ++i) {
     /* At first glance, this might seem bizarre. The "NoCRC" bit simply means
      * that the transmitter's rolling CRC will not be updated by the octet we
      * pass. We don't need to CRC the CRC itself. We write the CRC least
