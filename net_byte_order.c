@@ -15,7 +15,7 @@
 #define BYTESWAP(OUT, IN) \
     do { \
         uint8_t *presult = (uint8_t *)&(OUT); \
-        int i;
+        int i; \
         for (i = sizeof(IN) - 1; i >= 0; --i) { \
             presult[i] = (IN) & 0xff; \
             (IN) >>= 8; \
