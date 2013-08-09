@@ -371,7 +371,8 @@ static int sfpHandleFrame (SFPcontext *ctx) {
       frameTypeToString(getFrameType(ctx->rx.header)),
       getFrameSeq(ctx->rx.header));
 
-  for (size_t i = 0; i < ctx->rx.packet.len; ++i) {
+  size_t i;
+  for (i = 0; i < ctx->rx.packet.len; ++i) {
     fprintf(stderr, " %02x", ctx->rx.packet.buf[i]);
   }
   fprintf(stderr, "\n");
@@ -845,7 +846,8 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
 
   if (packet) {
     fprintf(stderr, "| ");
-    for (size_t i = 0; i < packet->len; ++i) {
+    size_t i;
+    for (i = 0; i < packet->len; ++i) {
       fprintf(stderr, "%02x ", packet->buf[i]);
     }
   }
