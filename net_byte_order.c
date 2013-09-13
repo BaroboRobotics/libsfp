@@ -1,24 +1,41 @@
 #include "net_byte_order.h"
 
-#define BYTESWAP(X) \
-    ({ \
-        __typeof__(X) result; \
-        uint8_t *presult = (uint8_t *)&result; \
-        for (int i = sizeof(X) - 1; i >= 0; --i) { \
-            presult[i] = (X) & 0xff; \
-            (X) >>= 8; \
+/* 
+ * Functions that swap integers between host byte order and network byte
+ * order.
+ *
+ * If the host byte order is little-endian, a call to netByteOrderXX reorders
+ * the bytes of an integer like so:
+ *
+ * [ A B ... Z ] -> [ Z Y ... A]
+ *
+ * If the host byte order is big-endian, a call to netByteOrderXX is a no-op.
+ */
+
+#define BYTESWAP(OUT, IN) \
+    do { \
+        uint8_t *presult = (uint8_t *)&(OUT); \
+        int i; \
+        for (i = sizeof(IN) - 1; i >= 0; --i) { \
+            presult[i] = (IN) & 0xff; \
+            (IN) >>= 8; \
         } \
-        result; \
-     })
+     } while (0)
 
 uint16_t netByteOrder16 (uint16_t value) {
-    return BYTESWAP(value);
+  uint16_t ret;
+  BYTESWAP(ret, value);
+  return ret;
 }
 
 uint32_t netByteOrder32 (uint32_t value) {
-    return BYTESWAP(value);
+  uint32_t ret;
+  BYTESWAP(ret, value);
+  return ret;
 }
 
 uint64_t netByteOrder64 (uint64_t value) {
-    return BYTESWAP(value);
+  uint64_t ret;
+  BYTESWAP(ret, value);
+  return ret;
 }

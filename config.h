@@ -1,0 +1,20 @@
+#ifndef _LIBSFP_CONFIG_H_
+#define _LIBSFP_CONFIG_H_
+
+#undef SFP_CONFIG_DEBUG
+#undef SFP_CONFIG_WARN
+#undef SFP_CONFIG_ERROR
+
+//#define SFP_CONFIG_DEBUG
+//#define SFP_CONFIG_WARN
+//#define SFP_CONFIG_ERROR
+
+#if 0
+/* Other configurables. */
+#define SFP_CONFIG_MAX_DEBUG_NAME_SIZE 256
+#define SFP_CONFIG_HISTORY_CAPACITY 32
+#define SFP_CONFIG_MAX_PACKET_SIZE 256
+#define SFP_CONFIG_WRITEBUF_SIZE 512
+#endif
+
+#endif
