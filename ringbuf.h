@@ -28,8 +28,8 @@
  * error message make some kind of sense. */
 #define RINGBUF_INIT_NAMED(BUF, NAME) \
     do { \
-        STATIC_ASSERT(RINGBUF_CAPACITY(BUF), "zero-length " NAME " (don't do that)"); \
-        STATIC_ASSERT(!(RINGBUF_CAPACITY(BUF) % 2), NAME " with non-power-of-two capacity"); \
+        static_assert(RINGBUF_CAPACITY(BUF), "zero-length " NAME " (don't do that)"); \
+        static_assert(!(RINGBUF_CAPACITY(BUF) % 2), NAME " with non-power-of-two capacity"); \
         (BUF).begin = 0; \
         (BUF).end = 0; \
     } while (0)
