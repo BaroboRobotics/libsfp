@@ -1,0 +1,36 @@
+There are four synchronization packets that libsfp uses to control connection
+state: SYN0 (synchronization packet 0), SYN1, SYN2, and DIS (disconnected).
+DIS is only used to signal the remote host that the local side considers the
+connection to be disconnected. Currently, 
+
+To save space, one input value is omitted: the DIS packet.
+
+             | sfpConnect | SYN0      | SYN1         | SYN2         | other
+-------------+------------+-----------+--------------+--------------+--------------
+DISCONNECTED | SENT_SYN0  | SENT_SYN1 | DISCONNECTED | DISCONNECTED | DISCONNECTED
+SENT_SYN0    | SENT_SYN0  | SENT_SYN0 | CONNECTED    | SENT_SYN0    | SENT_SYN0
+SENT_SYN1    | SENT_SYN1  | SENT_SYN1 | CONNECTED    | CONNECTED    | SENT_SYN1
+CONNECTED    | SENT_SYN0  | SENT_SYN1 | CONNECTED    | CONNECTED    | (normal operations)
+
+Entry actions:
+
+DISCONNECTED: transmit DIS packet if this is not the initial transition
+SENT_SYN0: clear history; transmit SYN0
+SENT_SYN1: clear history; transmit SYN1
+CONNECTED: transmit SYN2 if we did not receive a SYN2; transmit history
+
+libsfp's state is initialized to DISCONNECTED with the sfpInit() function, its
+history is initialized to empty. sfpConnect() begins the connection handshake
+with the remote host by sending a SYN0 packet (synchronization packet zero),
+and transitioning to the SENT_SYN0 state. Upon entry into the SENT_SYN0 state,
+it clears its history. This is obviously unnecessary when transitioning from
+the DISCONNECTED state--it's use will become clear later.
+
+Any sfpWritePacket() call the user makes in the SENT_SYN0 or SENT_SYN1 states
+causes packets to be buffered in the history, but does not change the state.
+This is so that the user can call sfpConnect(), and immediately begin calling
+sfpWritePacket() with data, without first having to wait for libsfp to connect.
+I would recommend avoiding this practice, if possible.
+
+When libsfp receives a SYN1 packet from the remote host (SYN1 being the
+response to SYN0)
