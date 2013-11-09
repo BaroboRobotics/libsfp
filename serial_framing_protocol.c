@@ -475,7 +475,7 @@ static int sfpHandleUSR (SFPcontext *ctx) {
   else {
     /* Good user frame received and accepted--deliver it. */
     if (ctx->rx.deliver) {
-      ctx->rx.deliver(&ctx->rx.packet, ctx->rx.deliverData);
+      ctx->rx.deliver(ctx->rx.packet.buf, ctx->rx.packet.len, ctx->rx.deliverData);
     }
     ctx->rx.seq = nextSeq(ctx->rx.seq);
     ret = 1;

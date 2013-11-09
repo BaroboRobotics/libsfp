@@ -80,7 +80,7 @@ typedef struct SFPpacket {
   size_t len;
 } SFPpacket;
 
-typedef void (*SFPdeliverfun) (SFPpacket *packet, void *userdata);
+typedef void (*SFPdeliverfun) (uint8_t* buf, size_t len, void *userdata);
 typedef int (*SFPwrite1fun) (uint8_t octet, size_t *outlen, void *userdata);
 typedef int (*SFPwritenfun) (uint8_t *octets, size_t len, size_t *outlen, void *userdata);
 typedef void (*SFPlockfun) (void *userdata);
