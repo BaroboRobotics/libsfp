@@ -161,6 +161,7 @@ int sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len, size_t *out
 void sfpConnect (SFPcontext *ctx);
 int sfpIsConnected (SFPcontext *ctx);
 
+size_t sfpGetSizeof (void);
 void sfpInit (SFPcontext *ctx);
 
 void sfpSetDeliverCallback (SFPcontext *ctx, SFPdeliverfun cbfun, void *userdata);

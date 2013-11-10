@@ -71,6 +71,10 @@ static int sfpCopyOutPacket (SFPcontext *ctx, uint8_t *buf, size_t len, size_t *
 
 //////////////////////////////////////////////////////////////////////////////
 
+size_t sfpGetSizeof (void) {
+  return sizeof(SFPcontext);
+}
+
 void sfpInit (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_DEBUG
   ctx->debugName[0] = '\0';
