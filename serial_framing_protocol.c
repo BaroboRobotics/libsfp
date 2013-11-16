@@ -71,6 +71,10 @@ static int sfpCopyOutPacket (SFPcontext *ctx, uint8_t *buf, size_t len, size_t *
 
 //////////////////////////////////////////////////////////////////////////////
 
+size_t sfpGetSizeof (void) {
+  return sizeof(SFPcontext);
+}
+
 void sfpInit (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_DEBUG
   ctx->debugName[0] = '\0';
@@ -475,7 +479,7 @@ static int sfpHandleUSR (SFPcontext *ctx) {
   else {
     /* Good user frame received and accepted--deliver it. */
     if (ctx->rx.deliver) {
-      ctx->rx.deliver(&ctx->rx.packet, ctx->rx.deliverData);
+      ctx->rx.deliver(ctx->rx.packet.buf, ctx->rx.packet.len, ctx->rx.deliverData);
     }
     ctx->rx.seq = nextSeq(ctx->rx.seq);
     ret = 1;
