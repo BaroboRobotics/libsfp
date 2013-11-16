@@ -1,7 +1,13 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.8)
 project(LIBSFP)
 
 include_directories(${DOF_FIRMWARE_SOURCE_DIR}/inc)
 
-add_library(sfpStatic STATIC net_byte_order.c serial_framing_protocol.c)
-add_library(sfp SHARED net_byte_order.c serial_framing_protocol.c)
+if(CMAKE_COMPILER_IS_GNUCC)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+endif(CMAKE_COMPILER_IS_GNUCC)
+
+set(SRCS serial_framing_protocol.c net_byte_order.c)
+
+add_library(sfpObjects OBJECT ${SRCS})
+add_library(sfp SHARED $<TARGET_OBJECTS:sfpObjects>)
