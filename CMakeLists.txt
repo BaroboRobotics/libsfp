@@ -3,9 +3,9 @@ project(LIBSFP)
 
 include_directories(${DOF_FIRMWARE_SOURCE_DIR}/inc)
 
-if(CMAKE_COMPILER_IS_GNUCC)
+if(NOT CMAKE_HOST_WIN32)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
-endif(CMAKE_COMPILER_IS_GNUCC)
+endif(NOT CMAKE_HOST_WIN32)
 
 set(SRCS serial_framing_protocol.c net_byte_order.c)
 
