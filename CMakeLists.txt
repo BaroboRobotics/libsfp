@@ -6,11 +6,17 @@ project(LIBSFP C)
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR})
 
-# Expose our public interface to other subprojects in CMake.
+##############################################################################
+# Headers
+
+# Install our public headers.
+file(GLOB HEADERS include/*)
+install(FILES ${HEADERS} DESTINATION include)
+
+# Expose our public headers to dependent sibling subprojects in CMake.
 set(${PROJECT_NAME}_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/include
-  CACHE INTERNAL "${PROJECT_NAME}: public include directories" FORCE)
+  CACHE INTERNAL "${PROJECT_NAME}: public headers" FORCE)
 
 include_directories(${${PROJECT_NAME}_INCLUDE_DIRS})
 
@@ -19,25 +25,21 @@ include_directories(${${PROJECT_NAME}_INCLUDE_DIRS})
 
 set(TARGET sfp)
 
-file(GLOB SOURCES src/*.c)
-file(GLOB HEADERS include/*.h)
+# Sources need to be listed manually so CMake knows to regenerate the
+# build system when the list of sources changes.
+set(SOURCES src/serial_framing_protocol.c src/net_byte_order.c)
 
-add_library(${TARGET}-objs OBJECT ${SOURCES})
-add_library(${TARGET} SHARED $<TARGET_OBJECTS:${TARGET}-objs>)
+# By default, we'll build a shared library, but the robot firmware needs to be
+# able to build a static library to link with. Providing a separate
+# ${TARGET}-static target isn't that useful, because the firmware uses an
+# entirely separate toolchain, so it will have a separate build directory.
+option(BUILD_SHARED_LIBS "build shared libraries" ON)
+add_library(${TARGET} ${SOURCES})
 
-# Although -fPIC is implied for SHARED targets, it is not for OBJECT targets,
-# and we must set this manually. TODO sfp needs to use PIC so we can link it
-# into libbarobo.so, but this will probably cause code bloat in the Linkbot
-# firmware. Set two different targets with an option to switch them.
-set_target_properties(${TARGET}-objs
-  PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-set_target_properties(${TARGET}
-  PROPERTIES VERSION ${VERSION} SOVERSION ${VERSION_MAJOR})
+set_target_properties(${TARGET} PROPERTIES
+  VERSION ${VERSION_MAJOR}.${VERSION_MINOR} SOVERSION ${VERSION_MAJOR})
 
 install(TARGETS ${TARGET}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
-
-install(FILES ${HEADERS} DESTINATION include)
