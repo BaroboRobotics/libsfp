@@ -62,6 +62,9 @@ write_basic_package_version_file(
 configure_file(inbuildconfig.cmake.in
   "${PROJECT_BINARY_DIR}/${project_name}-config.cmake" @ONLY)
 
+# Add ${PROJECT_BINARY_DIR} to the find_package config.cmake search path.
+export(PACKAGE ${PROJECT_NAME})
+
 # And configure again for the final installation directory.
 configure_package_config_file(config.cmake.in
   "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/${project_name}-config.cmake"
@@ -73,9 +76,5 @@ install(FILES
   "${PROJECT_BINARY_DIR}/${project_name}-config-version.cmake"
   DESTINATION "${INSTALL_CMAKE_DIR}")
 
-# Generate a target export cmake script for projects in the same build.
-export(TARGETS ${TARGET} FILE "${PROJECT_BINARY_DIR}/${EXPORT_TARGET_SET}.cmake")
-export(PACKAGE ${PROJECT_NAME})
-
-# And generate another for the final installation directory.
+# Generate a target export cmake script for the final installation directory.
 install(EXPORT ${EXPORT_TARGET_SET} DESTINATION "${INSTALL_CMAKE_DIR}")
