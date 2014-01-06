@@ -155,6 +155,10 @@ typedef struct SFPcontext {
 #endif
 } SFPcontext;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Return 1 on packet available, 0 on unavailable, -1 on error. */
 int sfpDeliverOctet (SFPcontext *ctx, uint8_t octet, uint8_t *buf, size_t len, size_t *outlen);
 int sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len, size_t *outlen);
@@ -173,4 +177,7 @@ void sfpSetUnlockCallback (SFPcontext *ctx, SFPunlockfun cbfun, void *userdata);
 void sfpSetDebugName (SFPcontext *ctx, const char *name);
 #endif
 
+#ifdef __cplusplus
+}
+#endif
 #endif
