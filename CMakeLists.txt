@@ -6,7 +6,8 @@ project(LIBSFP C)
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 1)
-set(VERSION_PATCH 0)
+set(VERSION_PATCH 1)
+set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 ##############################################################################
 # Headers
@@ -41,7 +42,8 @@ install(TARGETS ${TARGET}
   RUNTIME DESTINATION bin)
 
 ##############################################################################
-# Configuration for dependent parent projects
+# Configuration for dependent projects
 
-set(${PROJECT_NAME}_INCLUDE_DIRS ${PUBLIC_INCLUDE_DIR})
-set(${PROJECT_NAME}_LIBRARIES ${TARGET})
+get_filename_component(${PROJECT_NAME}_INCLUDE_DIRS ${PUBLIC_INCLUDE_DIR} ABSOLUTE CACHE)
+set(${PROJECT_NAME}_LIBRARIES ${TARGET} CACHE INTERNAL "")
+set(${PROJECT_NAME}_VERSION ${VERSION} CACHE INTERNAL "")
