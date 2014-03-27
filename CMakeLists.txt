@@ -60,3 +60,9 @@ install(TARGETS ${TARGET}
 get_filename_component(${PROJECT_NAME}_INCLUDE_DIRS ${PUBLIC_INCLUDE_DIR} ABSOLUTE CACHE)
 set(${PROJECT_NAME}_LIBRARIES ${TARGET} CACHE INTERNAL "")
 set(${PROJECT_NAME}_VERSION ${VERSION} CACHE INTERNAL "")
+
+##############################################################################
+# Fix install-name for Mac libraries
+if(CMAKE_HOST_APPLE)
+  set_target_properties(sfp PROPERTIES INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/lib")
+endif()
