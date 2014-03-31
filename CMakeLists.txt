@@ -6,14 +6,13 @@ project(LIBSFP C)
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 1)
-set(VERSION_PATCH 1)
+set(VERSION_PATCH 2)
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 ##############################################################################
 # Headers
 
 set(PUBLIC_INCLUDE_DIR include)
-install(DIRECTORY ${PUBLIC_INCLUDE_DIR} DESTINATION .)
 include_directories(${PUBLIC_INCLUDE_DIR})
 
 ##############################################################################
@@ -36,10 +35,24 @@ set_target_properties(${TARGET} PROPERTIES
   VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
   SOVERSION ${VERSION_MAJOR})
 
+##############################################################################
+# Installation
+
+if(UNIX)
+  set(INSTALL_LIB_DIR lib)
+  set(INSTALL_BIN_DIR bin)
+else()
+  set(INSTALL_LIB_DIR .)
+  set(INSTALL_BIN_DIR .)
+endif()
+
 install(TARGETS ${TARGET}
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin)
+  #ARCHIVE DESTINATION ${INSTALL_LIB_DIR}
+  LIBRARY DESTINATION ${INSTALL_LIB_DIR}
+  RUNTIME DESTINATION ${INSTALL_BIN_DIR})
+
+# TODO figure out what to do with the headers on install?
+#install(DIRECTORY ${PUBLIC_INCLUDE_DIR} DESTINATION .)
 
 ##############################################################################
 # Configuration for dependent projects
@@ -47,3 +60,9 @@ install(TARGETS ${TARGET}
 get_filename_component(${PROJECT_NAME}_INCLUDE_DIRS ${PUBLIC_INCLUDE_DIR} ABSOLUTE CACHE)
 set(${PROJECT_NAME}_LIBRARIES ${TARGET} CACHE INTERNAL "")
 set(${PROJECT_NAME}_VERSION ${VERSION} CACHE INTERNAL "")
+
+##############################################################################
+# Fix install-name for Mac libraries
+if(CMAKE_HOST_APPLE)
+  set_target_properties(sfp PROPERTIES INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/lib")
+endif()
