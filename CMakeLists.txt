@@ -2,7 +2,7 @@
 # Barobo, Inc.
 
 cmake_minimum_required(VERSION 2.8.9)
-project(LIBSFP C)
+project(LIBSFP CXX)
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 1)
@@ -22,13 +22,14 @@ set(TARGET sfp)
 
 # Sources need to be listed manually so CMake knows to regenerate the
 # build system when the list of sources changes.
-set(SOURCES src/serial_framing_protocol.c src/net_byte_order.c)
+set(SOURCES src/serial_framing_protocol.cpp )
+set_source_files_properties(${SOURCES} PROPERTIES COMPILE_FLAGS -std=c++11)
 
 # By default, we'll build a shared library, but the robot firmware needs to be
 # able to build a static library to link with. Providing a separate
 # ${TARGET}-static target isn't that useful, because the firmware uses an
 # entirely separate toolchain, so it will have a separate build directory.
-option(BUILD_SHARED_LIBS "build shared libraries" ON)
+option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 add_library(${TARGET} ${SOURCES})
 
 set_target_properties(${TARGET} PROPERTIES
