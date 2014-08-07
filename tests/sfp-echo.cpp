@@ -37,12 +37,12 @@ void alice_write (uint8_t octet, void *data) {
 }
 #endif
 
-int main () {
+int main (int argc, char** argv) {
     using Clock = std::chrono::system_clock;
 
     srand(time(NULL));
 
-    SimulatedMedium medium { SimulatedMedium::Milliseconds(100), 50000 };
+    SimulatedMedium medium { SimulatedMedium::Milliseconds(100), 19200 };
 
     std::string hello { "Hello!" };
     auto start = Clock::now();

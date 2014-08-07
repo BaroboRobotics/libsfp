@@ -99,9 +99,12 @@ private:
                 mReadQueue.push(*quantum);
             }
 
-            assert(nextTimePoint > std::chrono::steady_clock::now() &&
-                    "Process is too slow to simulate this baud rate.");
-            std::this_thread::sleep_until(nextTimePoint);
+            if (nextTimePoint < std::chrono::steady_clock::now()) {
+                fprintf(stderr, "Process is too slow to simulate this baud rate.\n");
+            }
+            else {
+                std::this_thread::sleep_until(nextTimePoint);
+            }
         }
     }
 
