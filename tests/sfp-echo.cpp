@@ -40,6 +40,12 @@ void alice_write (uint8_t octet, void *data) {
 int main (int argc, char** argv) {
     using Clock = std::chrono::system_clock;
 
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s <%%-chance-of-byte-drop> <%%-chance-of-bit-flip>\n",
+                argv[0]);
+        return 1;
+    }
+
     srand(time(NULL));
 
     SimulatedMedium medium { SimulatedMedium::Milliseconds(100), 19200 };
