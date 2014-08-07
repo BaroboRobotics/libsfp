@@ -15,9 +15,16 @@
  * intermediate buffer, and from the intermediate buffer to the read buffer, at
  * a fixed time interval.
  *
+ * SimulatedMedium has two construction parameters: a propagation delay (in
+ * milliseconds), and a baud rate (in bits per second). The size of the
+ * intermediate buffer is calculated from these two parameters: it will always
+ * have propagation-delay's worth of bytes, given the baud rate, between any
+ * two ticks.
+ *
  * Calling write and read from separate threads is safe. Writes and reads block
  * until the request is satisfied. */
 class SimulatedMedium {
+private:
     using Quantum = boost::optional<uint8_t>;
     std::queue<Quantum> mMedium;
 
@@ -84,15 +91,8 @@ private:
             mMedium.push(mWriteQueue.try_pop(octet)
                     ? Quantum(octet)
                     : Quantum(boost::none));
-#if 0
-            if (mWriteQueue.try_pop(octet)) {
-                mMedium.push(octet);
-            }
-            else {
-                mMedium.push(boost::none);
-            }
-#endif
 
+            // Feed the read buffer if there's an octet available.
             auto quantum = mMedium.front();
             mMedium.pop();
             if (quantum) {
@@ -111,6 +111,7 @@ private:
     tbb::concurrent_bounded_queue<uint8_t> mReadQueue;
 
     std::atomic<bool> mKillThread = { false };
+
     std::thread mThread;
 };
 
