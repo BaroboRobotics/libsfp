@@ -12,8 +12,10 @@ set_source_files_properties(
     COMPILE_FLAGS "-std=c++11")
 
 add_executable(sfp-echo sfp-echo.cpp)
-target_include_directories(sfp-echo PRIVATE ${TBB_INCLUDE_DIR})
-target_link_libraries(sfp-echo tbb)
+target_include_directories(sfp-echo
+    PRIVATE $<TARGET_PROPERTY:sfp,INCLUDE_DIRECTORIES>
+    PRIVATE ${TBB_INCLUDE_DIR})
+target_link_libraries(sfp-echo sfp tbb)
 
 add_test(NAME sfp-echo-clean COMMAND sfp-echo 0 0)
 # 5% chance of octet drop, 5% chance of bit flip

@@ -3,26 +3,24 @@
 
 #include <tbb/concurrent_queue.h>
 #include <boost/optional.hpp>
+#include <boost/signals2.hpp>
 #include <queue>
 #include <atomic>
 #include <thread>
 #include <cmath>
 
-/* Simulate a physical medium using three buffers (queues): a write buffer, an
- * intermediate buffer, and a read buffer. The user puts as many bytes as s/he
- * wants into the write buffer; a thread (started on object construction, shut
- * down on object destruction) moves bytes from the write buffer to the
- * intermediate buffer, and from the intermediate buffer to the read buffer, at
- * a fixed time interval.
+/* Simulate a physical medium using two buffers (queues) and a callback: a
+ * write buffer, an intermediate buffer, and a deliver callback. The user puts as
+ * many bytes as s/he wants into the write buffer; a thread (started on object
+ * construction, shut down on object destruction) moves bytes from the write
+ * buffer to the intermediate buffer, and from the intermediate buffer to the
+ * deliver callback, at a fixed time interval.
  *
  * SimulatedMedium has two construction parameters: a propagation delay (in
  * milliseconds), and a baud rate (in bits per second). The size of the
  * intermediate buffer is calculated from these two parameters: it will always
  * have propagation-delay's worth of bytes, given the baud rate, between any
- * two ticks.
- *
- * Calling write and read from separate threads is safe. Writes and reads block
- * until the request is satisfied. */
+ * two ticks. */
 class SimulatedMedium {
 private:
     using Quantum = boost::optional<uint8_t>;
@@ -32,12 +30,13 @@ private:
 
 public:
     using Milliseconds = std::chrono::duration<double, std::chrono::milliseconds::period>;
+    using Baud = unsigned;
 
-    SimulatedMedium (Milliseconds propagationDelay, unsigned baud)
+    SimulatedMedium (Milliseconds propagationDelay, Baud baud)
             // Pack the medium full of propagation-delay's worth of nothing.
             : mMedium(MediumContainer(capacity(propagationDelay, baud), boost::none))
             , mBaud(baud)
-            , mThread(&SimulatedMedium::serviceThread, this) {
+            , mThread(&SimulatedMedium::thread, this) {
         // Take advantage of concurrent_bounded_queue's blocking push feature
         // to avoid spinlocking on write.
         mWriteQueue.set_capacity(1);
@@ -48,24 +47,13 @@ public:
         mThread.join();
     }
 
-    // Block trying to read a byte.
-    uint8_t read () {
-        uint8_t octet;
-        mReadQueue.pop(octet);
-        return octet;
-    }
+    boost::signals2::signal<void(uint8_t)> output;
 
     // Block trying to write a byte.
-    void write (uint8_t octet) {
+    void input (uint8_t octet) {
         // Since we set the capacity of the write buffer to one, this will
         // block if something's already in there.
         mWriteQueue.push(octet);
-    }
-
-    void write (std::string s) {
-        for (auto c : s) {
-            write(static_cast<uint8_t>(c));
-        }
     }
 
 private:
@@ -76,11 +64,11 @@ private:
 
     // Calculate how many bytes will fit in our intermediate buffer based on
     // the baud rate and propagation delay.
-    static unsigned capacity (Milliseconds propagationDelay, unsigned baud) {
+    static unsigned capacity (Milliseconds propagationDelay, Baud baud) {
         return std::ceil(double(baud / 8) * propagationDelay / Milliseconds(1000));
     }
 
-    void serviceThread () {
+    void thread () {
         while (!mKillThread) {
             auto nextTimePoint = std::chrono::steady_clock::now() + tickInterval();
 
@@ -92,11 +80,11 @@ private:
                     ? Quantum(octet)
                     : Quantum(boost::none));
 
-            // Feed the read buffer if there's an octet available.
+            // Feed the deliver callback if there's an octet available.
             auto quantum = mMedium.front();
             mMedium.pop();
             if (quantum) {
-                mReadQueue.push(*quantum);
+                output(*quantum);
             }
 
             if (nextTimePoint < std::chrono::steady_clock::now()) {
@@ -108,13 +96,9 @@ private:
         }
     }
 
-    const unsigned mBaud;
-
+    const Baud mBaud;
     tbb::concurrent_bounded_queue<uint8_t> mWriteQueue;
-    tbb::concurrent_bounded_queue<uint8_t> mReadQueue;
-
     std::atomic<bool> mKillThread = { false };
-
     std::thread mThread;
 };
 
