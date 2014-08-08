@@ -1,23 +1,37 @@
-#ifndef SFPHOST_HPP
-#define SFPHOST_HPP
+#ifndef CONTEXT_HPP
+#define CONTEXT_HPP
 
-#include "serial_framing_protocol.h"
-
+#include "sfp/serial_framing_protocol.h"
 #include "sfp/callback.hpp"
 
+#ifdef SFP_CONFIG_DEBUG
 #include <string>
+#endif
+
+#ifdef SFP_CONFIG_THREADSAFE
 #include <thread>
 #include <mutex>
+#endif
 
-class SfpHost {
+namespace sfp {
+
+class Context {
 public:
-    explicit SfpHost (std::string debugName = { })
+#ifdef SFP_CONFIG_DEBUG
+    explicit Context (std::string debugName = { })
             : mDebugName(debugName) {
+#else
+    Context () {
+#endif
         sfpInit(&mContext);
         sfpSetDeliverCallback(&mContext, staticDeliver, this);
         sfpSetWriteCallback(&mContext, SFP_WRITE_ONE, (void*)staticWrite, this);
+
+#ifdef SFP_CONFIG_THREADSAFE
         sfpSetLockCallback(&mContext, staticLock, this);
         sfpSetUnlockCallback(&mContext, staticUnlock, this);
+#endif
+
 #ifdef SFP_CONFIG_DEBUG
         sfpSetDebugName(&mContext, debugName.c_str());
 #endif
@@ -43,46 +57,43 @@ public:
 
     void connect () {
         sfpConnect(&mContext);
-        waitUntilConnected();
-    }
-
-    void waitUntilConnected () {
-        while (!isConnected()) {
-            //sfpConnect(&mContext);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
     }
 
     bool isConnected () {
         return sfpIsConnected(&mContext);
     }
 
-    void pump () {
-        sendMessage(nullptr, 0);
-    }
-
 private:
     static void staticDeliver (uint8_t* buf, size_t len, void* data) {
-        static_cast<SfpHost*>(data)->messageReceived(buf, len);
+        static_cast<Context*>(data)->messageReceived(buf, len);
     }
 
     static int staticWrite (uint8_t octet, size_t* outlen, void* data) {
         if (outlen) { *outlen = 1; }
-        static_cast<SfpHost*>(data)->output(octet);
+        static_cast<Context*>(data)->output(octet);
         return 0;
     }
 
+#ifdef SFP_CONFIG_THREADSAFE
     static void staticLock (void* data) {
-        static_cast<SfpHost*>(data)->mTransmitterMutex.lock();
+        static_cast<Context*>(data)->mTransmitterMutex.lock();
     }
 
     static void staticUnlock (void* data) {
-        static_cast<SfpHost*>(data)->mTransmitterMutex.unlock();
+        static_cast<Context*>(data)->mTransmitterMutex.unlock();
     }
+#endif
 
     SFPcontext mContext;
+#ifdef SFP_CONFIG_THREADSAFE
     std::mutex mTransmitterMutex;
+#endif
+
+#ifdef SFP_CONFIG_DEBUG
     std::string mDebugName;
+#endif
 };
+
+} // namespace sfp
 
 #endif

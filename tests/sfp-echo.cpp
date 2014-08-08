@@ -1,8 +1,9 @@
 #define SFP_CONFIG_HISTORY_BUFFER_CAPACITY SFP_SEQ_RANGE
 #define BOOST_BIND_NO_PLACEHOLDERS // don't put _1, _2, etc. in global namespcae
+#define SFP_CONFIG_THREADSAFE
 
 #include "garbler.hpp"
-#include "sfphost.hpp"
+#include "sfp/context.hpp"
 #include "simulatedmedium.hpp"
 
 #include <boost/iterator/function_input_iterator.hpp>
@@ -41,8 +42,16 @@ int main (int argc, char** argv) {
     std::mutex messagesMutex;
     std::queue<Message> sentMessages;
 
-    SfpHost alice { std::string("alice") };
-    SfpHost bob { std::string("bob") };
+    sfp::Context alice {
+#ifdef SFP_CONFIG_DEBUG
+        std::string("alice")
+#endif
+    };
+    sfp::Context bob {
+#ifdef SFP_CONFIG_DEBUG
+        std::string("bob")
+#endif
+    };
 
     SimulatedMedium aliceToBob { kPropagationDelay, kBaud, "aliceToBob" };
     SimulatedMedium bobToAlice { kPropagationDelay, kBaud, "bobToAlice" };
@@ -59,15 +68,13 @@ int main (int argc, char** argv) {
     alicesGarbler.output.connect(BIND_MEM_CB(&SimulatedMedium::input, &aliceToBob));
     bobsGarbler.output.connect(BIND_MEM_CB(&SimulatedMedium::input, &bobToAlice));
 
-    aliceToBob.output.connect(BIND_MEM_CB(&SfpHost::input, &bob));
-    bobToAlice.output.connect(BIND_MEM_CB(&SfpHost::input, &alice));
+    aliceToBob.output.connect(BIND_MEM_CB(&sfp::Context::input, &bob));
+    bobToAlice.output.connect(BIND_MEM_CB(&sfp::Context::input, &alice));
 
     auto aliceMessageHandler = [&] (const uint8_t* buf, size_t len) {
-        //printf("alice received a message\n");
         if (!buf || !len) { return; }
         Message m { buf, buf + len };
         std::lock_guard<std::mutex> lock { messagesMutex };
-        //printf("alice got a lock or something!\n");
         if (m.size() == sentMessages.front().size() &&
                 std::equal(m.cbegin(), m.cend(), sentMessages.front().cbegin())) {
             printf("Alice received a matching message.\n");
@@ -84,6 +91,7 @@ int main (int argc, char** argv) {
             for (auto b : m) {
                 printf("%02x ", b);
             }
+            printf("\n");
             exit(1);
         }
         sentMessages.pop();
@@ -92,12 +100,19 @@ int main (int argc, char** argv) {
     alice.messageReceived.connect(BIND_MEM_CB(&Lambda::operator(), &aliceMessageHandler));
 
     // loopback
-    bob.messageReceived.connect(BIND_MEM_CB(&SfpHost::sendMessage, &bob));
+    bob.messageReceived.connect(BIND_MEM_CB(&sfp::Context::sendMessage, &bob));
 
     printf("Alice connects to Bob ...");
     alice.connect();
+    while (!alice.isConnected()) {
+        alice.output(0x7e);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     printf(" success!\n");
-    bob.waitUntilConnected();
+    while (!bob.isConnected()) {
+        alice.output(0x7e);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     printf("Bob is connected, too, and they're both happy.\n");
 
     // Function object which returns a random byte every time it is invoked.
@@ -121,6 +136,7 @@ int main (int argc, char** argv) {
         return boost::make_function_input_iterator(randomByte, state);
     };
 
+    printf("sending messages...\n");
     const int nMessages = 100;
     for (int i = 0; i < nMessages; ++i) {
         std::lock_guard<std::mutex> lock { messagesMutex };
@@ -134,8 +150,8 @@ int main (int argc, char** argv) {
         {
             std::lock_guard<std::mutex> lock { messagesMutex };
             if (sentMessages.empty()) { break; }
-            alice.pump();
-            bob.pump();
+            alice.output(0x7e);
+            bob.output(0x7e);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

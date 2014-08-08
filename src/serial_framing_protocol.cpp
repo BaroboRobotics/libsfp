@@ -1,4 +1,4 @@
-#include "serial_framing_protocol.h"
+#include "sfp/serial_framing_protocol.h"
 
 #include <assert.h>
 #include <stdio.h>

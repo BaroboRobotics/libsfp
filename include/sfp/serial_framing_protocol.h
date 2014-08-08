@@ -1,11 +1,11 @@
 #ifndef _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 #define _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 
-#include "config.h"
-#include "net_byte_order.h"
-#include "ringbuf.h"
+#include "sfp/config.h"
+#include "sfp/ringbuf.h"
 
 #include <stdlib.h>
+#include <cstdint>
 
 #ifdef SFP_CONFIG_DEBUG
 #ifndef SFP_CONFIG_MAX_DEBUG_NAME_SIZE

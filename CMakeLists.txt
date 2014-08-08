@@ -2,7 +2,7 @@
 # Barobo, Inc.
 
 cmake_minimum_required(VERSION 2.8.9)
-project(LIBSFP CXX)
+project(LIBSFP CXX C)
 
 option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
 
@@ -10,6 +10,8 @@ set(VERSION_MAJOR 0)
 set(VERSION_MINOR 1)
 set(VERSION_PATCH 2)
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
+
+configure_file(config.h.in include/sfp/config.h)
 
 ##############################################################################
 # Targets
@@ -27,7 +29,8 @@ option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 add_library(sfp ${SOURCES})
 
 target_include_directories(sfp
-    PUBLIC include)
+    PUBLIC include
+           ${PROJECT_BINARY_DIR}/include)
 
 set_target_properties(sfp PROPERTIES
   VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
