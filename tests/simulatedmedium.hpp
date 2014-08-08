@@ -1,9 +1,9 @@
 #ifndef SIMULATEDMEDIUM_HPP
 #define SIMULATEDMEDIUM_HPP
 
+#include "sfp/callback.hpp"
 #include <tbb/concurrent_queue.h>
 #include <boost/optional.hpp>
-#include <boost/signals2.hpp>
 #include <queue>
 #include <atomic>
 #include <thread>
@@ -32,14 +32,13 @@ public:
     using Milliseconds = std::chrono::duration<double, std::chrono::milliseconds::period>;
     using Baud = unsigned;
 
-    SimulatedMedium (Milliseconds propagationDelay, Baud baud)
+    SimulatedMedium (Milliseconds propagationDelay, Baud baud, std::string debugName)
             // Pack the medium full of propagation-delay's worth of nothing.
-            : mMedium(MediumContainer(capacity(propagationDelay, baud), boost::none))
+            : mMedium(MediumContainer(calculateCapacity(propagationDelay, baud), boost::none))
+            , mPropagationDelay(propagationDelay)
             , mBaud(baud)
-            , mThread(&SimulatedMedium::thread, this) {
-        // Take advantage of concurrent_bounded_queue's blocking push feature
-        // to avoid spinlocking on write.
-        mWriteQueue.set_capacity(1);
+            , mThread(&SimulatedMedium::thread, this)
+            , mDebugName(debugName) {
     }
 
     ~SimulatedMedium () {
@@ -47,13 +46,14 @@ public:
         mThread.join();
     }
 
-    boost::signals2::signal<void(uint8_t)> output;
+    util::Signal<void(uint8_t)> output;
 
-    // Block trying to write a byte.
     void input (uint8_t octet) {
-        // Since we set the capacity of the write buffer to one, this will
-        // block if something's already in there.
         mWriteQueue.push(octet);
+    }
+
+    unsigned capacity () const {
+        return calculateCapacity(mPropagationDelay, mBaud);
     }
 
 private:
@@ -64,7 +64,7 @@ private:
 
     // Calculate how many bytes will fit in our intermediate buffer based on
     // the baud rate and propagation delay.
-    static unsigned capacity (Milliseconds propagationDelay, Baud baud) {
+    static unsigned calculateCapacity (Milliseconds propagationDelay, Baud baud) {
         return std::ceil(double(baud / 8) * propagationDelay / Milliseconds(1000));
     }
 
@@ -76,6 +76,7 @@ private:
             // intermediate buffer. Otherwise, push nothing to keep the pipe
             // flowing.
             uint8_t octet;
+            //printf("%s moving an octet from write buffer to intermediate buffer\n", mDebugName.c_str());
             mMedium.push(mWriteQueue.try_pop(octet)
                     ? Quantum(octet)
                     : Quantum(boost::none));
@@ -84,11 +85,13 @@ private:
             auto quantum = mMedium.front();
             mMedium.pop();
             if (quantum) {
+                //printf("%s outputing an octet\n", mDebugName.c_str());
                 output(*quantum);
             }
 
+            //printf("%s cycle complete\n", mDebugName.c_str());
             if (nextTimePoint < std::chrono::steady_clock::now()) {
-                fprintf(stderr, "Process is too slow to simulate this baud rate.\n");
+                //fprintf(stderr, "Process is too slow to simulate this baud rate.\n");
             }
             else {
                 std::this_thread::sleep_until(nextTimePoint);
@@ -97,9 +100,11 @@ private:
     }
 
     const Baud mBaud;
+    const Milliseconds mPropagationDelay;
     tbb::concurrent_bounded_queue<uint8_t> mWriteQueue;
     std::atomic<bool> mKillThread = { false };
     std::thread mThread;
+    std::string mDebugName;
 };
 
 #endif

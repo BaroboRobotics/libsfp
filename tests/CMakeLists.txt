@@ -6,17 +6,22 @@ if(NOT TBB_INCLUDE_DIR)
     Gentoo: emerge dev-cpp/tbb")
 endif()
 
+set(Boost_USE_STATIC_LIBS ON)
+find_package(Boost 1.54.0 REQUIRED)
+
 set_source_files_properties(
     sfp-echo.cpp
     PROPERTIES
     COMPILE_FLAGS "-std=c++11")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg")
 add_executable(sfp-echo sfp-echo.cpp)
 target_include_directories(sfp-echo
     PRIVATE $<TARGET_PROPERTY:sfp,INCLUDE_DIRECTORIES>
-    PRIVATE ${TBB_INCLUDE_DIR})
+            ${TBB_INCLUDE_DIR}
+            ${Boost_INCLUDE_DIRS})
 target_link_libraries(sfp-echo sfp tbb)
 
 add_test(NAME sfp-echo-clean COMMAND sfp-echo 0 0)
-# 5% chance of octet drop, 5% chance of bit flip
-add_test(NAME sfp-echo-fuzzy COMMAND sfp-echo 5 5)
+# 0.1% chance of octet drop, 0% chance of bit flip
+add_test(NAME sfp-echo-fuzzy COMMAND sfp-echo 0.001 0)

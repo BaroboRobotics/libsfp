@@ -3,18 +3,22 @@
 
 #include "serial_framing_protocol.h"
 
-#include <boost/signals2.hpp>
+#include "sfp/callback.hpp"
 
 #include <string>
 #include <thread>
+#include <mutex>
 
 class SfpHost {
 public:
-    explicit SfpHost (std::string debugName = { }) {
+    explicit SfpHost (std::string debugName = { })
+            : mDebugName(debugName) {
         sfpInit(&mContext);
         sfpSetDeliverCallback(&mContext, staticDeliver, this);
         sfpSetWriteCallback(&mContext, SFP_WRITE_ONE, (void*)staticWrite, this);
-#ifdef SFP_DEBUG
+        sfpSetLockCallback(&mContext, staticLock, this);
+        sfpSetUnlockCallback(&mContext, staticUnlock, this);
+#ifdef SFP_CONFIG_DEBUG
         sfpSetDebugName(&mContext, debugName.c_str());
 #endif
     }
@@ -26,7 +30,7 @@ public:
     }
 
     // outgoing octet signal
-    boost::signals2::signal<void(uint8_t)> output;
+    util::Signal<void(uint8_t)> output;
 
     // outgoing message slot
     void sendMessage (const uint8_t* buf, size_t len) {
@@ -35,7 +39,7 @@ public:
     }
 
     // incoming message signal
-    boost::signals2::signal<void(uint8_t*,size_t)> messageReceived;
+    util::Signal<void(const uint8_t*,size_t)> messageReceived;
 
     void connect () {
         sfpConnect(&mContext);
@@ -44,12 +48,17 @@ public:
 
     void waitUntilConnected () {
         while (!isConnected()) {
+            //sfpConnect(&mContext);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 
     bool isConnected () {
         return sfpIsConnected(&mContext);
+    }
+
+    void pump () {
+        sendMessage(nullptr, 0);
     }
 
 private:
@@ -63,7 +72,17 @@ private:
         return 0;
     }
 
+    static void staticLock (void* data) {
+        static_cast<SfpHost*>(data)->mTransmitterMutex.lock();
+    }
+
+    static void staticUnlock (void* data) {
+        static_cast<SfpHost*>(data)->mTransmitterMutex.unlock();
+    }
+
     SFPcontext mContext;
+    std::mutex mTransmitterMutex;
+    std::string mDebugName;
 };
 
 #endif
