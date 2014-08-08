@@ -4,6 +4,8 @@
 cmake_minimum_required(VERSION 2.8.9)
 project(LIBSFP CXX)
 
+option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
+
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 1)
 set(VERSION_PATCH 2)
@@ -50,4 +52,9 @@ install(TARGETS sfp
 # Fix install-name for Mac libraries
 if(APPLE)
   set_target_properties(sfp PROPERTIES INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/lib")
+endif()
+
+if(SFP_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
