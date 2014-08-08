@@ -30,11 +30,9 @@ uint8_t garble (uint8_t octet) {
 }
 
 void alice_write (uint8_t octet, void *data) {
-#if 1
   if ((double)rand() / (double)RAND_MAX < CHANCE_OF_BYTE_DROP) {
     return;
   }
-#endif
   RINGBUF_PUSH_BACK(aliceToBob, garble(octet));
 }
 #endif
@@ -87,58 +85,10 @@ int main (int argc, char** argv) {
     alice.sendMessage(reinterpret_cast<const uint8_t*>(hello.c_str()), hello.size());
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-#if 0
     using IntIterator = boost::counting_iterator<int>;
 
-    std::string message {
-        std::string("Hey guys I'm a message. :) I can contain all kinds of "
-                "shit, like binary data: ") +
-        std::string(IntIterator(0), IntIterator(100)) +
-        std::string(", or ... well, that's all, I guess.")
-    };
-
-    for (uint8_t c : message) {
-        printf("%02x ", c);
-    }
-    printf("\n");
-
-    std::string hello { "Hello!" };
-
-    auto start = Clock::now();
-
-    aliceToBob.write(hello);
-    for (int i = 0; i < hello.size(); ++i) {
-        auto c = aliceToBob.read();
-        std::cout << c;
-    }
-
-    auto stop = Clock::now();
-    auto elapsedMs = std::chrono::duration_cast<SimulatedMedium::Milliseconds>(stop - start);
-    std::cout << "\nElapsed milliseconds: " << elapsedMs.count() << std::endl;
-
-    sfpConnect(&alice);
-
-    for (int i = 0; i < 20; i++) {
-    do {
-      alice_write('\x7e', NULL);
-      bob_write("\x7e", 1, NULL);
-      serviceMedium(&aliceToBob, &bob);
-      serviceMedium(&bobToAlice, &alice);
-    } while (!sfpIsConnected(&alice) || !sfpIsConnected(&bob));
-
-    SFPpacket packet;
-
-    packet.len = snprintf((char *)packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Hi Bob! (%d)", i);
-    sfpWritePacket(&alice, &packet);
-
-#if 1
-    packet.len = snprintf((char *)packet.buf, SFP_CONFIG_MAX_PACKET_SIZE, "Shut up Alice! (%d)", i);
-    sfpWritePacket(&bob, &packet);
-#endif
-
-    if (13 == i) {
-      printf("!!!! ALICE RECONNECTING !!!!\n");
-      sfpConnect(&alice);
-    }
-#endif
+    // TODO: keep a queue of sent messages. Add messages to this queue and call
+    // alice.sendMessage() at the same time. Alice's messageReceived handler
+    // shall pop messages off the queue and compare them with messages that she
+    // sent.
 }
