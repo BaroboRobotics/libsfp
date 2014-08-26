@@ -23,6 +23,10 @@ public:
 #else
     Context () {
 #endif
+        initialize();
+    }
+
+    void initialize () {
         sfpInit(&mContext);
         sfpSetDeliverCallback(&mContext, staticDeliver, this);
         sfpSetWriteCallback(&mContext, SFP_WRITE_ONE, (void*)staticWrite, this);
@@ -33,7 +37,7 @@ public:
 #endif
 
 #ifdef SFP_CONFIG_DEBUG
-        sfpSetDebugName(&mContext, debugName.c_str());
+        sfpSetDebugName(&mContext, mDebugName.c_str());
 #endif
     }
 
