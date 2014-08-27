@@ -104,6 +104,18 @@ void sfpInit (SFPcontext *ctx) {
   RINGBUF_INIT(ctx->tx.history);
 }
 
+struct TransmitterLock {
+  TransmitterLock (SFPcontext* ctx) : mCtx(ctx) {
+    sfpLockTransmitter(ctx);
+  }
+
+  ~TransmitterLock () {
+    sfpUnlockTransmitter(mCtx);
+  }
+
+  SFPcontext* mCtx;
+};
+
 /* Should ideally be called only when sfpDeliverOctet() is not executing. */
 void sfpConnect (SFPcontext *ctx) {
   /* Very similar to the sfpHandleSYN* functions. All connect states do the same thing. */
@@ -111,14 +123,12 @@ void sfpConnect (SFPcontext *ctx) {
   sfpResetReceiver(ctx);
   ctx->rx.seq = SFP_INITIAL_SEQ;
 
-  sfpLockTransmitter(ctx);
+  TransmitterLock lock { ctx };
 
   ctx->tx.seq = SFP_INITIAL_SEQ;
   sfpClearHistory(ctx);
   sfpTransmitSYN0(ctx);
   ctx->connectState = SFP_CONNECT_STATE_SENT_SYN0;
-
-  sfpUnlockTransmitter(ctx);
 }
 
 int sfpIsConnected (SFPcontext *ctx) {
@@ -232,9 +242,9 @@ int sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len, size_t *out
   memcpy(packet.buf, buf, len);
   packet.len = len;
 
-  sfpLockTransmitter(ctx);
+  TransmitterLock lock { ctx };
+
   int ret = sfpTransmitUSR(ctx, &packet, outlen);
-  sfpUnlockTransmitter(ctx);
 
   return ret;
 }
@@ -350,9 +360,8 @@ static int sfpHandleFrame (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_WARN
     fprintf(stderr, "(sfp) WARNING: short frame received, sending NAK.\n");
 #endif
-    sfpLockTransmitter(ctx);
+    TransmitterLock lock { ctx };
     sfpTransmitNAK(ctx, ctx->rx.seq);
-    sfpUnlockTransmitter(ctx);
     return 0;
   }
 
@@ -364,9 +373,8 @@ static int sfpHandleFrame (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_WARN
     fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
 #endif
-    sfpLockTransmitter(ctx);
+    TransmitterLock lock { ctx };
     sfpTransmitNAK(ctx, ctx->rx.seq);
-    sfpUnlockTransmitter(ctx);
     return 0;
   }
 
@@ -398,16 +406,16 @@ static int sfpHandleFrame (SFPcontext *ctx) {
     case SFP_FRAME_RTX:
       ret = sfpHandleUSR(ctx);
       break;
-    case SFP_FRAME_NAK:
-      sfpLockTransmitter(ctx);
+    case SFP_FRAME_NAK: {
+      TransmitterLock lock { ctx };
       sfpHandleNAK(ctx);
-      sfpUnlockTransmitter(ctx);
       break;
-    case SFP_FRAME_SYN:
-      sfpLockTransmitter(ctx);
+    }
+    case SFP_FRAME_SYN: {
+      TransmitterLock lock { ctx };
       sfpHandleSYN(ctx);
-      sfpUnlockTransmitter(ctx);
       break;
+    }
     default:
       /* FIXME bitch to the user? */
       /* error: unknown frame type */
@@ -434,26 +442,23 @@ static int sfpHandleUSR (SFPcontext *ctx) {
   assert(SFP_FRAME_USR == getFrameType(ctx->rx.header)
       || SFP_FRAME_RTX == getFrameType(ctx->rx.header));
 
-  switch (ctx->connectState) {
-    case SFP_CONNECT_STATE_DISCONNECTED:
-      sfpLockTransmitter(ctx);
-      sfpTransmitDIS(ctx);
-      sfpUnlockTransmitter(ctx);
-      return 0;
-    case SFP_CONNECT_STATE_SENT_SYN0:
-      sfpLockTransmitter(ctx);
-      sfpTransmitSYN0(ctx);
-      sfpUnlockTransmitter(ctx);
-      return 0;
-    case SFP_CONNECT_STATE_SENT_SYN1:
-      sfpLockTransmitter(ctx);
-      sfpTransmitSYN1(ctx);
-      sfpUnlockTransmitter(ctx);
-      return 0;
-    case SFP_CONNECT_STATE_CONNECTED:
-      /* fall-through */
-    default:
-      break;
+  {
+    TransmitterLock lock { ctx };
+    switch (ctx->connectState) {
+      case SFP_CONNECT_STATE_DISCONNECTED:
+        sfpTransmitDIS(ctx);
+        return 0;
+      case SFP_CONNECT_STATE_SENT_SYN0:
+        sfpTransmitSYN0(ctx);
+        return 0;
+      case SFP_CONNECT_STATE_SENT_SYN1:
+        sfpTransmitSYN1(ctx);
+        return 0;
+      case SFP_CONNECT_STATE_CONNECTED:
+        /* fall-through */
+      default:
+        break;
+    }
   }
 
   int ret = 0;
@@ -467,9 +472,8 @@ static int sfpHandleUSR (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_WARN
       fprintf(stderr, "(sfp) WARNING: out-of-order frame received, sending NAK.\n");
 #endif
-      sfpLockTransmitter(ctx);
+      TransmitterLock lock { ctx };
       sfpTransmitNAK(ctx, ctx->rx.seq);
-      sfpUnlockTransmitter(ctx);
     }
     else {
 #ifdef SFP_CONFIG_WARN
