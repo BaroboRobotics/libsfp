@@ -13,22 +13,6 @@ set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 configure_file(config.h.in include/sfp/config.h)
 
-# Dependencies
-
-if(NOT DEFINED DEPS_ROOT)
-    if(DEFINED ENV{DEPS_ROOT})
-        set(DEPS_ROOT "$ENV{DEPS_ROOT}")
-    else()
-        message(FATAL_ERROR "Please set DEPS_ROOT to the location of your dependencies (libsfp, ribbon-bridge, etc.).")
-    endif()
-endif()
-
-function(add_dependency _name)
-    add_subdirectory(${DEPS_ROOT}/${_name} ${_name})
-endfunction()
-
-add_dependency(cxx-util)
-
 ##############################################################################
 # Targets
 
