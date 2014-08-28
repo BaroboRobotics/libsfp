@@ -1,7 +1,7 @@
 #ifndef GARBLER_HPP
 #define GARBLER_HPP
 
-#include "sfp/callback.hpp"
+#include "util/callback.hpp"
 
 #include <random>
 #include <cstdint>

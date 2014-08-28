@@ -1,7 +1,7 @@
 #ifndef SIMULATEDMEDIUM_HPP
 #define SIMULATEDMEDIUM_HPP
 
-#include "sfp/callback.hpp"
+#include "util/callback.hpp"
 #include <tbb/concurrent_queue.h>
 #include <boost/optional.hpp>
 #include <queue>
