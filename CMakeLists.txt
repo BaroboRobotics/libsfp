@@ -40,6 +40,7 @@ set_target_properties(${target} PROPERTIES
   MACOSX_RPATH ON
 )
 
+configure_file(config.h.in include/sfp/config.h)
 target_include_directories(${target}
     PUBLIC include
            ${PROJECT_BINARY_DIR}/include
