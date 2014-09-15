@@ -1,13 +1,9 @@
 #ifndef _LIBSFP_CONFIG_H_
 #define _LIBSFP_CONFIG_H_
 
-#undef SFP_CONFIG_DEBUG
-#undef SFP_CONFIG_WARN
-#undef SFP_CONFIG_ERROR
-
-//#define SFP_CONFIG_DEBUG
-//#define SFP_CONFIG_WARN
-//#define SFP_CONFIG_ERROR
+#cmakedefine SFP_CONFIG_DEBUG
+#cmakedefine SFP_CONFIG_WARN
+#cmakedefine SFP_CONFIG_ERROR
 
 #if 0
 /* Other configurables. */
