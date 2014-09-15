@@ -5,7 +5,7 @@
 #include "sfp/ringbuf.h"
 
 #include <stdlib.h>
-#include <cstdint>
+#include <stdint.h>
 
 #ifdef SFP_CONFIG_DEBUG
 #ifndef SFP_CONFIG_MAX_DEBUG_NAME_SIZE
