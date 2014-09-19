@@ -1,7 +1,7 @@
 # Serial Framing Protocol library
 # Barobo, Inc.
 
-cmake_minimum_required(VERSION 2.8.9)
+cmake_minimum_required(VERSION 2.8.12)
 
 set(target sfp)
 project(${target})
@@ -23,9 +23,9 @@ set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 # libsfp has a library target, and optional tests
 
 set(sources src/serial_framing_protocol.cpp )
-set_source_files_properties(${sources} PROPERTIES COMPILE_FLAGS -std=c++11)
 
 add_library(${target} ${sources})
+target_compile_options(${target} PRIVATE "-std=c++11")
 
 if(SFP_BUILD_TESTS)
     enable_testing()
