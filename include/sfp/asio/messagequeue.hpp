@@ -56,10 +56,11 @@ public:
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
+		auto& realHandler = init.handler;
 
-		mStrand.dispatch([=] () mutable {
+		mStrand.dispatch([this, realHandler] () mutable {
 			resetSfp();
-			mHandshakeHandler = init.handler;
+			mHandshakeHandler = realHandler;
 			handshakeWriteCoroutine();
 			handshakeReadCoroutine();
 		});
@@ -69,14 +70,15 @@ public:
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncShutdown (Handler handler) {
+	asyncShutdown (Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
+		auto& realHandler = init.handler;
 
-		mStrand.dispatch([=] () mutable {
+		mStrand.dispatch([this, realHandler] () mutable {
 			resetSfp();
-			mStream.get_io_service().post(std::bind(init.handler,
+			mStream.get_io_service().post(std::bind(realHandler,
 				sys::error_code(sys::errc::success, sys::generic_category())));
 		});
 
@@ -85,17 +87,18 @@ public:
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncSend (const boost::asio::const_buffer& buffer, Handler handler) {
+	asyncSend (const boost::asio::const_buffer& buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
+		auto& realHandler = init.handler;
 
-		mStrand.dispatch([=] () mutable {
+		mStrand.dispatch([this, &buffer, realHandler] () mutable {
 			size_t outlen;
 			sfpWritePacket(&mContext,
 				boost::asio::buffer_cast<const uint8_t*>(buffer),
 				boost::asio::buffer_size(buffer), &outlen);
-			flushWriteBuffer(init.handler);
+			flushWriteBuffer(realHandler);
 		});
 
 		return init.result.get();
@@ -103,13 +106,14 @@ public:
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncReceive (const boost::asio::mutable_buffer& buffer, Handler handler) {
+	asyncReceive (const boost::asio::mutable_buffer& buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
+		auto& realHandler = init.handler;
 
-		mStrand.dispatch([=] () mutable {
-			mReceives.emplace(std::make_pair(buffer, init.handler));
+		mStrand.dispatch([this, &buffer, realHandler] () mutable {
+			mReceives.emplace(std::make_pair(buffer, realHandler));
 			postReceives();
 		});
 
