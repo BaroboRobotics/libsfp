@@ -68,31 +68,52 @@ public:
 	}
 
 	template <class Handler>
-	void asyncShutdown (Handler handler) {
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncShutdown (Handler handler) {
+		boost::asio::detail::async_result_init<
+			Handler, void(boost::system::error_code)
+		> init { std::forward<Handler>(handler) };
+
 		mStrand.dispatch([=] () mutable {
 			resetSfp();
-			mStream.get_io_service().post(std::bind(handler,
+			mStream.get_io_service().post(std::bind(init.handler,
 				sys::error_code(sys::errc::success, sys::generic_category())));
 		});
+
+		return init.result.get();
 	}
 
 	template <class Handler>
-	void asyncSend (const boost::asio::const_buffer& buffer, Handler handler) {
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncSend (const boost::asio::const_buffer& buffer, Handler handler) {
+		boost::asio::detail::async_result_init<
+			Handler, void(boost::system::error_code)
+		> init { std::forward<Handler>(handler) };
+
 		mStrand.dispatch([=] () mutable {
 			size_t outlen;
 			sfpWritePacket(&mContext,
 				boost::asio::buffer_cast<const uint8_t*>(buffer),
 				boost::asio::buffer_size(buffer), &outlen);
-			flushWriteBuffer(handler);
+			flushWriteBuffer(init.handler);
 		});
+
+		return init.result.get();
 	}
 
 	template <class Handler>
-	void asyncReceive (const boost::asio::mutable_buffer& buffer, Handler handler) {
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncReceive (const boost::asio::mutable_buffer& buffer, Handler handler) {
+		boost::asio::detail::async_result_init<
+			Handler, void(boost::system::error_code)
+		> init { std::forward<Handler>(handler) };
+
 		mStrand.dispatch([=] () mutable {
-			mReceives.emplace(std::make_pair(buffer, handler));
+			mReceives.emplace(std::make_pair(buffer, init.handler));
 			postReceives();
 		});
+
+		return init.result.get();
 	}
 
 private:

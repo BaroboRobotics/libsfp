@@ -1,5 +1,3 @@
-//#define BOOST_BIND_NO_PLACEHOLDERS // don't put _1, _2, etc. in global namespcae
-
 #include "sfp/asio/messagequeue.hpp"
 
 #include <boost/asio.hpp>
@@ -35,34 +33,27 @@ int main (int argc, char** argv) {
             alice.asyncHandshake(yield);
             std::cout << "alice shook hands\n";
 
-            auto out = std::make_shared<std::vector<uint8_t>>(10);
-            std::iota(out->begin(), out->end(), 0);
-            alice.asyncSend(boost::asio::buffer(*out), [out] (boost::system::error_code& ec) {
-                if (!ec) {
-                    std::cout << "alice sent a message\n";
-                }
-            });
+            std::vector<uint8_t> out { 10 };
+            std::iota(out.begin(), out.end(), 0);
+            alice.asyncSend(boost::asio::buffer(out), yield);
+            std::cout << "alice sent a message\n";
 
-            auto in = std::make_shared<std::vector<uint8_t>>(10);
-            alice.asyncReceive(boost::asio::buffer(*in),
-                    [&alice, &bob, &testResult, &work, in, out] (boost::system::error_code& ec) {
-                work = boost::none;
-                alice.asyncShutdown([] (boost::system::error_code&) {
-                    std::cout << "alice shut down\n";
-                });
-                bob.asyncShutdown([] (boost::system::error_code&) {
-                    std::cout << "bob shut down\n";
-                });
+            std::vector<uint8_t> in { 10 };
+            alice.asyncReceive(boost::asio::buffer(in), yield);
+            std::cout << "alice received a "
+                      << (in == out ? "matching" : "NONMATCHING")
+                      << " message\n";
+            if (in == out) {
+                testResult = SUCCEEDED;
+            }
 
-                if (!ec) {
-                    std::cout << "alice received a "
-                              << (*in == *out ? "matching" : "NONMATCHING")
-                              << " message\n";
-                    if (*in == *out) {
-                        testResult = SUCCEEDED;
-                    }
-                }
-            });
+            work = boost::none;
+
+            alice.asyncShutdown(yield);
+            std::cout << "alice shut down\n";
+
+            bob.asyncShutdown(yield);
+            std::cout << "bob shut down\n";
         }
         catch (boost::system::system_error& e) {
             if (boost::asio::error::operation_aborted != e.code()) {
