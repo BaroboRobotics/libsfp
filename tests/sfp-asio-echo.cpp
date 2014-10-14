@@ -14,8 +14,6 @@ int main (int argc, char** argv) {
     int testResult = FAILED;
 
     boost::asio::io_service ioService;
-    using OptionalWork = boost::optional<boost::asio::io_service::work>;
-    OptionalWork work { boost::in_place(std::ref(ioService)) };
 
     using UnixDomainSocket = boost::asio::local::stream_protocol::socket;
     sfp::asio::MessageQueue<UnixDomainSocket> alice { ioService };
@@ -47,7 +45,6 @@ int main (int argc, char** argv) {
                 testResult = SUCCEEDED;
             }
 
-            work = boost::none;
 
             alice.asyncShutdown(yield);
             std::cout << "alice shut down\n";
