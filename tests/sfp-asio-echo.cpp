@@ -31,26 +31,25 @@ int main (int argc, char** argv) {
             alice.asyncHandshake(yield);
             std::cout << "alice shook hands\n";
 
+            std::vector<uint8_t> in { 10 };
             std::vector<uint8_t> out { 10 };
             std::iota(out.begin(), out.end(), 0);
+            assert(in != out);
+
             alice.asyncSend(boost::asio::buffer(out), yield);
             std::cout << "alice sent a message\n";
 
-            std::vector<uint8_t> in { 10 };
             alice.asyncReceive(boost::asio::buffer(in), yield);
             std::cout << "alice received a "
                       << (in == out ? "matching" : "NONMATCHING")
                       << " message\n";
+
             if (in == out) {
                 testResult = SUCCEEDED;
             }
 
-
             alice.asyncShutdown(yield);
             std::cout << "alice shut down\n";
-
-            bob.asyncShutdown(yield);
-            std::cout << "bob shut down\n";
         }
         catch (boost::system::system_error& e) {
             if (boost::asio::error::operation_aborted != e.code()) {
@@ -59,18 +58,26 @@ int main (int argc, char** argv) {
         }
     });
 
-    bob.asyncHandshake([&] (boost::system::error_code& ec) {
-        if (!ec) {
+    boost::asio::spawn(ioService, [&] (boost::asio::yield_context yield) {
+        try {
+            bob.asyncHandshake(yield);
             std::cout << "bob shook hands\n";
-            auto in = std::make_shared<std::vector<uint8_t>>(10);
-            bob.asyncReceive(boost::asio::buffer(*in), [&bob, in] (boost::system::error_code& ec) {
-                std::cout << "bob received a message\n";
-                if (!ec) {
-                    bob.asyncSend(boost::asio::buffer(*in), [in] (boost::system::error_code& ec) {
-                        std::cout << "bob echoed a message\n";
-                    });
-                }
-            });
+
+            std::vector<uint8_t> in { 10 };
+
+            bob.asyncReceive(boost::asio::buffer(in), yield);
+            std::cout << "bob received a message\n";
+
+            bob.asyncSend(boost::asio::buffer(in), yield);
+            std::cout << "bob echoed a message\n";
+
+            bob.asyncShutdown(yield);
+            std::cout << "bob shut down\n";
+        }
+        catch (boost::system::system_error& e) {
+            if (boost::asio::error::operation_aborted != e.code()) {
+                throw;
+            }
         }
     });
 
