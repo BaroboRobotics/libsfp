@@ -30,8 +30,9 @@ int main (int argc, char** argv) {
 
     boost::asio::local::connect_pair(alice.stream(), bob.stream());
 
-    alice.asyncHandshake([&] (boost::system::error_code& ec) {
-        if (!ec) {
+    boost::asio::spawn(ioService, [&] (boost::asio::yield_context yield) {
+        try {
+            alice.asyncHandshake(yield);
             std::cout << "alice shook hands\n";
 
             auto out = std::make_shared<std::vector<uint8_t>>(10);
@@ -62,6 +63,11 @@ int main (int argc, char** argv) {
                     }
                 }
             });
+        }
+        catch (boost::system::system_error& e) {
+            if (boost::asio::error::operation_aborted != e.code()) {
+                throw;
+            }
         }
     });
 
