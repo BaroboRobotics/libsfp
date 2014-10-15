@@ -47,7 +47,6 @@ int main (int argc, char** argv) {
         catch (boost::system::system_error& e) {
             if (boost::asio::error::operation_aborted != e.code()) {
                 std::cout << "bob code threw " << e.what();
-                //throw;
             }
             else {
                 std::cout << "bob's shit got canceled with " << e.what() << std::endl;
@@ -91,7 +90,6 @@ int main (int argc, char** argv) {
     catch (boost::system::system_error& e) {
         if (boost::asio::error::operation_aborted != e.code()) {
             std::cout << "alice code threw " << e.what();
-            //throw;
         }
         else {
             std::cout << "alice's shit got canceled with " << e.what() << std::endl;

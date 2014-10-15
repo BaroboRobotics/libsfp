@@ -73,8 +73,7 @@ public:
 
 		mStrand.dispatch([this, realHandler] () mutable {
 			cancel();
-			mStream.get_io_service().post(std::bind(realHandler,
-				sys::error_code(sys::errc::success, sys::generic_category())));
+			mStream.get_io_service().post(std::bind(realHandler, sys::error_code()));
 		});
 
 		return init.result.get();
@@ -116,7 +115,7 @@ public:
 	}
 
 	void cancel () {
-		reset(sys::error_code(boost::asio::error::operation_aborted));
+		reset(make_error_code(boost::asio::error::operation_aborted));
 	}
 
 private:
@@ -173,8 +172,9 @@ private:
 				mSfpTimer.async_wait(yield);
 				BOOST_LOG(mLog) << "sfp connection is settled";
 				assert(mHandshakeHandler);
-				mStream.get_io_service().post(std::bind(mHandshakeHandler,
-					sys::error_code(sys::errc::success, sys::generic_category())));
+				mStream.get_io_service().post(
+					std::bind(mHandshakeHandler, sys::error_code())
+				);
 				mHandshakeHandler = nullptr;
 			}
 			catch (sys::system_error& e) {
@@ -205,8 +205,8 @@ private:
 				boost::asio::buffer(mInbox.front()));
 			
 			auto ec = nCopied <= boost::asio::buffer_size(mReceives.front().first)
-					  ? sys::error_code(sys::errc::success, sys::generic_category())
-					  : sys::error_code(boost::asio::error::message_size);
+					  ? sys::error_code()
+					  : make_error_code(boost::asio::error::message_size);
 
 			mStream.get_io_service().post(std::bind(mReceives.front().second, ec));
 			mInbox.pop();
@@ -234,9 +234,7 @@ private:
 	template <class Handler>
 	void flushWriteBuffer (Handler handler) {
 		if (!mWriteBuffer.size()) {
-			mStream.get_io_service().post(std::bind(handler,
-				sys::error_code(sys::errc::success, sys::generic_category())
-			));
+			mStream.get_io_service().post(std::bind(handler, sys::error_code()));
 			return;
 		}
 		mOutbox.emplace(std::make_pair(mWriteBuffer, handler));
@@ -247,8 +245,9 @@ private:
 				try {
 					do {
 						boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().first), yield);
-						mStream.get_io_service().post(std::bind(mOutbox.front().second,
-							sys::error_code(sys::errc::success, sys::generic_category())));
+						mStream.get_io_service().post(
+							std::bind(mOutbox.front().second, sys::error_code())
+						);
 						mOutbox.pop();
 					} while (mOutbox.size());
 				}
