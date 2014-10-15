@@ -137,7 +137,8 @@ private:
 		};
 
 		// Guarantee that if we're called in the strand, then the state will
-		// be reset when we return.
+		// be reset when we return. From my reading of the Asio docs, .dispatch
+		// does not actually provide this guarantee.
 		if (mStrand.running_in_this_thread()) {
 			resetState();
 		}
