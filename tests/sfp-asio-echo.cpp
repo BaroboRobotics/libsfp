@@ -46,18 +46,23 @@ int main (int argc, char** argv) {
         }
         catch (boost::system::system_error& e) {
             if (boost::asio::error::operation_aborted != e.code()) {
-                throw;
+                std::cout << "bob code threw " << e.what();
+                //throw;
+            }
+            else {
+                std::cout << "bob's shit got canceled with " << e.what() << std::endl;
             }
         }
     });
 
     std::thread t { [&] () {
-        ioService.run();
+        boost::system::error_code ec;
+        ioService.run(ec);
+        std::cout << "io_service::run reports " << ec.message() << std::endl;
     }};
 
     try {
-        auto f = alice.asyncHandshake(boost::asio::use_future);
-        f.get();
+        alice.asyncHandshake(boost::asio::use_future).get();
         std::cout << "alice shook hands\n";
 
         std::vector<uint8_t> in { 10 };
@@ -85,7 +90,11 @@ int main (int argc, char** argv) {
     }
     catch (boost::system::system_error& e) {
         if (boost::asio::error::operation_aborted != e.code()) {
-            throw;
+            std::cout << "alice code threw " << e.what();
+            //throw;
+        }
+        else {
+            std::cout << "alice's shit got canceled with " << e.what() << std::endl;
         }
     }
 

@@ -36,11 +36,6 @@ public:
 			, mSfpTimer(mStream.get_io_service())
 			, mStrand(mStream.get_io_service()) { }
 
-	~MessageQueue () {
-		mStream.cancel();
-		mSfpTimer.cancel();
-	}
-
 #ifdef SFP_CONFIG_DEBUG
 	void setDebugName (std::string debugName) {
 		sfpSetDebugName(&mContext, debugName.c_str());
@@ -59,7 +54,7 @@ public:
 		auto& realHandler = init.handler;
 
 		mStrand.dispatch([this, realHandler] () mutable {
-			resetSfp();
+			cancel();
 			mHandshakeHandler = realHandler;
 			handshakeWriteCoroutine();
 			handshakeReadCoroutine();
@@ -77,7 +72,7 @@ public:
 		auto& realHandler = init.handler;
 
 		mStrand.dispatch([this, realHandler] () mutable {
-			resetSfp();
+			cancel();
 			mStream.get_io_service().post(std::bind(realHandler,
 				sys::error_code(sys::errc::success, sys::generic_category())));
 		});
@@ -120,40 +115,36 @@ public:
 		return init.result.get();
 	}
 
+	void cancel () {
+		reset(sys::error_code(boost::asio::error::operation_aborted));
+	}
+
 private:
-	void resetSfp () {
+	void reset (boost::system::error_code ec) {
 		mStream.cancel();
 		mSfpTimer.cancel();
 
-		if (mHandshakeHandler) {
-			mStream.get_io_service().post(
-				std::bind(mHandshakeHandler, sys::error_code(boost::asio::error::eof)));
-			mHandshakeHandler = nullptr;
+		auto resetState = [this, ec] () {
+			postReceives();
+			voidAllHandlers(ec);
+
+			mInbox = decltype(mInbox)();
+			mWriteBuffer.clear();
+
+			sfpInit(&mContext);
+			sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
+				(void*)writeCallback, this);
+			sfpSetDeliverCallback(&mContext, deliverCallback, this);
+		};
+
+		// Guarantee that if we're called in the strand, then the state will
+		// be reset when we return.
+		if (mStrand.running_in_this_thread()) {
+			resetState();
 		}
-
-		postReceives();
-		while (mReceives.size()) {
-			mStream.get_io_service().post(
-				std::bind(mReceives.front().second, sys::error_code(boost::asio::error::eof)));
-			mReceives.pop();
+		else {
+			mStrand.dispatch(resetState);
 		}
-
-		mInbox = decltype(mInbox)();
-		mReceives = decltype(mReceives)();
-
-		while (mOutbox.size()) {
-			mStream.get_io_service().post(
-				std::bind(mOutbox.front().second, sys::error_code(boost::asio::error::eof)));
-			mOutbox.pop();
-		}
-		
-		mWriteBuffer.clear();
-		mOutbox = decltype(mOutbox)();
-
-		sfpInit(&mContext);
-		sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
-			(void*)writeCallback, this);
-		sfpSetDeliverCallback(&mContext, deliverCallback, this);
 	}
 	
 	void readAndWrite (boost::asio::yield_context yield) {
@@ -187,9 +178,7 @@ private:
 				mHandshakeHandler = nullptr;
 			}
 			catch (sys::system_error& e) {
-				if (boost::asio::error::operation_aborted != e.code()) {
-					throw;
-				}
+				reset(e.code());
 			}
 		});
 	}
@@ -203,9 +192,7 @@ private:
 				}
 			}
 			catch (sys::system_error& e) {
-				if (boost::asio::error::operation_aborted != e.code()) {
-					throw;
-				}
+				reset(e.code());
 			}
 		});
 	}
@@ -227,6 +214,23 @@ private:
 		}
 	}
 
+	void voidAllHandlers (boost::system::error_code ec) {
+		if (mHandshakeHandler) {
+			mStream.get_io_service().post(std::bind(mHandshakeHandler, ec));
+			mHandshakeHandler = nullptr;
+		}
+
+		while (mReceives.size()) {
+			mStream.get_io_service().post(std::bind(mReceives.front().second, ec));
+			mReceives.pop();
+		}
+
+		while (mOutbox.size()) {
+			mStream.get_io_service().post(std::bind(mOutbox.front().second, ec));
+			mOutbox.pop();
+		}
+	}
+
 	template <class Handler>
 	void flushWriteBuffer (Handler handler) {
 		if (!mWriteBuffer.size()) {
@@ -240,15 +244,17 @@ private:
 		if (1 == mOutbox.size()) {
 			BOOST_LOG(mLog) << "spawning writer coroutine";
 			boost::asio::spawn(mStrand, [this] (boost::asio::yield_context yield) mutable {
-				do {
-					auto ec = sys::error_code(sys::errc::success, sys::generic_category());
-					boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().first), yield[ec]);
-					if (boost::asio::error::operation_aborted == ec) {
-						break;
-					}
-					mStream.get_io_service().post(std::bind(mOutbox.front().second, ec));
-					mOutbox.pop();
-				} while (mOutbox.size());
+				try {
+					do {
+						boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().first), yield);
+						mStream.get_io_service().post(std::bind(mOutbox.front().second,
+							sys::error_code(sys::errc::success, sys::generic_category())));
+						mOutbox.pop();
+					} while (mOutbox.size());
+				}
+				catch (boost::system::system_error& e) {
+					reset(e.code());
+				}
 			});
 		}
 	}
