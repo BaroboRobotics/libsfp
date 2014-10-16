@@ -136,7 +136,7 @@ private:
 			(void*)writeCallback, this);
 		sfpSetDeliverCallback(&mContext, deliverCallback, this);
 	}
-	
+
 	void readAndWrite (boost::asio::yield_context yield) {
 		uint8_t buf[256];
 		auto nRead = mStream.async_read_some(boost::asio::buffer(buf), yield);
@@ -208,7 +208,7 @@ private:
 		while (mInbox.size() && mReceives.size()) {
 			auto nCopied = boost::asio::buffer_copy(mReceives.front().first,
 				boost::asio::buffer(mInbox.front()));
-			
+
 			auto ec = nCopied <= boost::asio::buffer_size(mReceives.front().first)
 					  ? sys::error_code()
 					  : make_error_code(boost::asio::error::message_size);
