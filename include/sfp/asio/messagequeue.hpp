@@ -54,10 +54,8 @@ public:
 		auto& realHandler = init.handler;
 
 		mStrand.dispatch([this, realHandler] () mutable {
-			cancel();
-			mHandshakeHandler = realHandler;
-			handshakeWriteCoroutine();
-			handshakeReadCoroutine();
+			reset(boost::asio::error::operation_aborted);
+			handshakeCoroutine(realHandler);
 		});
 
 		return init.result.get();
@@ -72,7 +70,7 @@ public:
 		auto& realHandler = init.handler;
 
 		mStrand.dispatch([this, realHandler] () mutable {
-			cancel();
+			reset(boost::asio::error::operation_aborted);
 			mStream.get_io_service().post(std::bind(realHandler, sys::error_code()));
 		});
 
@@ -109,42 +107,34 @@ public:
 		mStrand.dispatch([this, &buffer, realHandler] () mutable {
 			mReceives.emplace(std::make_pair(buffer, realHandler));
 			postReceives();
+			if (1 == mReceives.size()) {
+				readCoroutine();
+			}
 		});
 
 		return init.result.get();
 	}
 
 	void cancel () {
-		reset(make_error_code(boost::asio::error::operation_aborted));
+		mStream.cancel();
+		mSfpTimer.cancel();
 	}
 
 private:
 	void reset (boost::system::error_code ec) {
-		mStream.cancel();
-		mSfpTimer.cancel();
+		cancel();
 
-		auto resetState = [this, ec] () {
-			postReceives();
-			voidAllHandlers(ec);
+		postReceives();
+		voidReceives(ec);
+		mInbox = decltype(mInbox)();
 
-			mInbox = decltype(mInbox)();
-			mWriteBuffer.clear();
+		voidOutbox(ec);
+		mWriteBuffer.clear();
 
-			sfpInit(&mContext);
-			sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
-				(void*)writeCallback, this);
-			sfpSetDeliverCallback(&mContext, deliverCallback, this);
-		};
-
-		// Guarantee that if we're called in the strand, then the state will
-		// be reset when we return. From my reading of the Asio docs, .dispatch
-		// does not actually provide this guarantee.
-		if (mStrand.running_in_this_thread()) {
-			resetState();
-		}
-		else {
-			mStrand.dispatch(resetState);
-		}
+		sfpInit(&mContext);
+		sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
+			(void*)writeCallback, this);
+		sfpSetDeliverCallback(&mContext, deliverCallback, this);
 	}
 	
 	void readAndWrite (boost::asio::yield_context yield) {
@@ -157,10 +147,22 @@ private:
 		flushWriteBuffer([] (sys::error_code) { });
 	}
 
-	void handshakeWriteCoroutine () {
+	template <class Handler>
+	void handshakeCoroutine (Handler&& handler) {
 		BOOST_LOG(mLog) << "Spawning handshake write coroutine";
-		boost::asio::spawn(mStrand, [this] (boost::asio::yield_context yield) mutable {
+		boost::asio::spawn(mStrand, [this, handler] (boost::asio::yield_context yield) mutable {
 			try {
+				std::vector<uint8_t> readBuffer(1024);
+				mReceives.emplace(boost::asio::buffer(readBuffer),
+					[this, &readBuffer] (boost::system::error_code& ec) {
+						if (!ec) {
+							mInbox.push_front(readBuffer);
+						}
+					});
+
+				assert(1 == mReceives.size());
+				readCoroutine();
+
 				do {
 					BOOST_LOG(mLog) << "Sending sfp connect packet";
 					sfpConnect(&mContext);
@@ -168,32 +170,34 @@ private:
 					mSfpTimer.expires_from_now(kSfpConnectTimeout);
 					mSfpTimer.async_wait(yield);
 				} while (!sfpIsConnected(&mContext));
+
 				BOOST_LOG(mLog) << "sfp appears to be connected";
 				mSfpTimer.expires_from_now(kSfpSettleTimeout);
 				mSfpTimer.async_wait(yield);
 				BOOST_LOG(mLog) << "sfp connection is settled";
-				assert(mHandshakeHandler);
-				mStream.get_io_service().post(
-					std::bind(mHandshakeHandler, sys::error_code())
-				);
-				mHandshakeHandler = nullptr;
+
+				mStream.cancel();
+				mStream.get_io_service().post(std::bind(handler, sys::error_code()));
 			}
 			catch (sys::system_error& e) {
-				reset(e.code());
+				mStream.get_io_service().post(std::bind(handler, e.code()));
+				if (boost::asio::error::operation_aborted != e.code()) {
+					reset(e.code());
+				}
 			}
 		});
 	}
 
-	void handshakeReadCoroutine () {
+	void readCoroutine () {
 		boost::asio::spawn(mStrand, [this] (boost::asio::yield_context yield) mutable {
 			try {
-				while (true) {
-					postReceives();
+				while (mReceives.size()) {
 					readAndWrite(yield);
+					postReceives();
 				}
 			}
 			catch (sys::system_error& e) {
-				reset(e.code());
+				voidReceives(e.code());
 			}
 		});
 	}
@@ -210,22 +214,19 @@ private:
 					  : make_error_code(boost::asio::error::message_size);
 
 			mStream.get_io_service().post(std::bind(mReceives.front().second, ec));
-			mInbox.pop();
+			mInbox.pop_front();
 			mReceives.pop();
 		}
 	}
 
-	void voidAllHandlers (boost::system::error_code ec) {
-		if (mHandshakeHandler) {
-			mStream.get_io_service().post(std::bind(mHandshakeHandler, ec));
-			mHandshakeHandler = nullptr;
-		}
-
+	void voidReceives (boost::system::error_code ec) {
 		while (mReceives.size()) {
 			mStream.get_io_service().post(std::bind(mReceives.front().second, ec));
 			mReceives.pop();
 		}
+	}
 
+	void voidOutbox (boost::system::error_code ec) {
 		while (mOutbox.size()) {
 			mStream.get_io_service().post(std::bind(mOutbox.front().second, ec));
 			mOutbox.pop();
@@ -269,7 +270,7 @@ private:
 
 	// Receive one message. Push onto a queue of incoming messages.
 	static void deliverCallback (uint8_t* buf, size_t len, void* data) {
-		static_cast<MessageQueue*>(data)->mInbox.emplace(buf, buf + len);
+		static_cast<MessageQueue*>(data)->mInbox.emplace_back(buf, buf + len);
 	}
 
 	static const std::chrono::milliseconds kSfpConnectTimeout;
@@ -277,13 +278,11 @@ private:
 
 	mutable boost::log::sources::logger mLog;
 
-	std::queue<std::vector<uint8_t>> mInbox;
+	std::deque<std::vector<uint8_t>> mInbox;
 	std::queue<std::pair<boost::asio::mutable_buffer, ReceiveHandler>> mReceives;
 
 	std::vector<uint8_t> mWriteBuffer;
 	std::queue<std::pair<std::vector<uint8_t>, SendHandler>> mOutbox;
-
-	HandshakeHandler mHandshakeHandler;
 
 	Stream mStream;
 	boost::asio::steady_timer mSfpTimer;

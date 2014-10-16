@@ -54,6 +54,10 @@ int main (int argc, char** argv) {
         }
     });
 
+    boost::optional<boost::asio::io_service::work> work {
+        boost::in_place(std::ref(ioService))
+    };
+
     std::thread t { [&] () {
         boost::system::error_code ec;
         ioService.run(ec);
@@ -95,6 +99,8 @@ int main (int argc, char** argv) {
             std::cout << "alice's shit got canceled with " << e.what() << std::endl;
         }
     }
+
+    work = boost::none;
 
     t.join();
 
