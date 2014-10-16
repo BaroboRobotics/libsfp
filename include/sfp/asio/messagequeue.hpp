@@ -27,7 +27,7 @@ template <class Stream>
 class MessageQueue {
 public:
 	using HandshakeHandler = std::function<void(sys::error_code&)>;
-	using ReceiveHandler = std::function<void(sys::error_code&)>;
+	using ReceiveHandler = std::function<void(sys::error_code&, size_t)>;
 	using SendHandler = std::function<void(sys::error_code&)>;
 
 	template <class... Args>
@@ -97,10 +97,10 @@ public:
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
 	asyncReceive (const boost::asio::mutable_buffer& buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
-			Handler, void(boost::system::error_code)
+			Handler, void(boost::system::error_code, size_t)
 		> init { std::forward<Handler>(handler) };
 		auto& realHandler = init.handler;
 
@@ -154,8 +154,9 @@ private:
 			try {
 				std::vector<uint8_t> readBuffer(1024);
 				mReceives.emplace(boost::asio::buffer(readBuffer),
-					[this, &readBuffer] (boost::system::error_code& ec) {
+					[this, &readBuffer] (boost::system::error_code& ec, size_t messageSize) {
 						if (!ec) {
+							readBuffer.resize(messageSize);
 							mInbox.push_front(readBuffer);
 						}
 					});
@@ -209,11 +210,11 @@ private:
 			auto nCopied = boost::asio::buffer_copy(mReceives.front().first,
 				boost::asio::buffer(mInbox.front()));
 
-			auto ec = nCopied <= boost::asio::buffer_size(mReceives.front().first)
+			auto ec = nCopied == mInbox.front().size()
 					  ? sys::error_code()
 					  : make_error_code(boost::asio::error::message_size);
 
-			mStream.get_io_service().post(std::bind(mReceives.front().second, ec));
+			mStream.get_io_service().post(std::bind(mReceives.front().second, ec, nCopied));
 			mInbox.pop_front();
 			mReceives.pop();
 		}
@@ -221,7 +222,7 @@ private:
 
 	void voidReceives (boost::system::error_code ec) {
 		while (mReceives.size()) {
-			mStream.get_io_service().post(std::bind(mReceives.front().second, ec));
+			mStream.get_io_service().post(std::bind(mReceives.front().second, ec, 0));
 			mReceives.pop();
 		}
 	}

@@ -33,24 +33,21 @@ int main (int argc, char** argv) {
             bob.asyncHandshake(yield);
             std::cout << "bob shook hands\n";
 
-            std::vector<uint8_t> in { 10 };
+            std::vector<uint8_t> in(1024);
 
-            bob.asyncReceive(boost::asio::buffer(in), yield);
+            auto messageSize = bob.asyncReceive(boost::asio::buffer(in), yield);
             std::cout << "bob received a message\n";
 
-            bob.asyncSend(boost::asio::buffer(in), yield);
+            bob.asyncSend(boost::asio::buffer(in, messageSize), yield);
             std::cout << "bob echoed a message\n";
 
             bob.asyncShutdown(yield);
             std::cout << "bob shut down\n";
         }
         catch (boost::system::system_error& e) {
-            if (boost::asio::error::operation_aborted != e.code()) {
-                std::cout << "bob code threw " << e.what();
-            }
-            else {
-                std::cout << "bob's shit got canceled with " << e.what() << std::endl;
-            }
+            std::cout << "bob code threw " << e.what() << std::endl;
+            bob.cancel();
+            alice.cancel();
         }
     });
 
@@ -68,8 +65,8 @@ int main (int argc, char** argv) {
         alice.asyncHandshake(boost::asio::use_future).get();
         std::cout << "alice shook hands\n";
 
-        std::vector<uint8_t> in { 10 };
-        std::vector<uint8_t> out { 10 };
+        std::vector<uint8_t> in(10);
+        std::vector<uint8_t> out(10);
         std::iota(out.begin(), out.end(), 0);
         assert(in != out);
 
@@ -79,7 +76,7 @@ int main (int argc, char** argv) {
         sf.get();
         std::cout << "alice sent a message\n";
 
-        rf.get();
+        in.resize(rf.get());
         std::cout << "alice received a "
                   << (in == out ? "matching" : "NONMATCHING")
                   << " message\n";
@@ -92,12 +89,9 @@ int main (int argc, char** argv) {
         std::cout << "alice shut down\n";
     }
     catch (boost::system::system_error& e) {
-        if (boost::asio::error::operation_aborted != e.code()) {
-            std::cout << "alice code threw " << e.what();
-        }
-        else {
-            std::cout << "alice's shit got canceled with " << e.what() << std::endl;
-        }
+        std::cout << "alice code threw " << e.what() << std::endl;
+        bob.cancel();
+        alice.cancel();
     }
 
     work = boost::none;
