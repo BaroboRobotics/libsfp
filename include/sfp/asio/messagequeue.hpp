@@ -36,6 +36,32 @@ public:
 			, mSfpTimer(mStream.get_io_service())
 			, mStrand(mStream.get_io_service()) { }
 
+	~MessageQueue () {
+		boost::system::error_code ec;
+		cancel(ec);
+	}
+
+	void cancel () {
+		boost::system::error_code ec;
+		cancel(ec);
+		if (ec) {
+			throw boost::system::system_error(ec);
+		}
+	}
+
+	void cancel (boost::system::error_code& ec) {
+		boost::system::error_code localEc;
+		ec = localEc;
+		mStream.cancel(localEc);
+		if (localEc) {
+			ec = localEc;
+		}
+		mSfpTimer.cancel(localEc);
+		if (localEc) {
+			ec = localEc;
+		}
+	}
+
 #ifdef SFP_CONFIG_DEBUG
 	void setDebugName (std::string debugName) {
 		sfpSetDebugName(&mContext, debugName.c_str());
@@ -113,11 +139,6 @@ public:
 		});
 
 		return init.result.get();
-	}
-
-	void cancel () {
-		mStream.cancel();
-		mSfpTimer.cancel();
 	}
 
 private:
