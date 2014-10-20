@@ -1,5 +1,7 @@
 #include "sfp/asio/messagequeue.hpp"
 
+#include <boost/optional.hpp>
+
 #include <boost/asio.hpp>
 #include <boost/asio/use_future.hpp>
 
