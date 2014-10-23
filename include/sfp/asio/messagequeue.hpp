@@ -26,9 +26,9 @@ namespace sys = boost::system;
 template <class Stream>
 class MessageQueue {
 public:
-	using HandshakeHandler = std::function<void(sys::error_code&)>;
-	using ReceiveHandler = std::function<void(sys::error_code&, size_t)>;
-	using SendHandler = std::function<void(sys::error_code&)>;
+	using HandshakeHandler = std::function<void(sys::error_code)>;
+	using ReceiveHandler = std::function<void(sys::error_code, size_t)>;
+	using SendHandler = std::function<void(sys::error_code)>;
 
 	template <class... Args>
 	explicit MessageQueue (Args&&... args)
@@ -49,7 +49,7 @@ public:
 		}
 	}
 
-	void cancel (boost::system::error_code& ec) {
+	void cancel (boost::system::error_code ec) {
 		boost::system::error_code localEc;
 		ec = localEc;
 		mStream.cancel(localEc);
@@ -105,13 +105,13 @@ public:
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncSend (const boost::asio::const_buffer& buffer, Handler&& handler) {
+	asyncSend (boost::asio::const_buffer buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
 		auto& realHandler = init.handler;
 
-		mStrand.dispatch([this, &buffer, realHandler] () mutable {
+		mStrand.dispatch([this, buffer, realHandler] () mutable {
 			size_t outlen;
 			sfpWritePacket(&mContext,
 				boost::asio::buffer_cast<const uint8_t*>(buffer),
@@ -124,13 +124,13 @@ public:
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
-	asyncReceive (const boost::asio::mutable_buffer& buffer, Handler&& handler) {
+	asyncReceive (boost::asio::mutable_buffer buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code, size_t)
 		> init { std::forward<Handler>(handler) };
 		auto& realHandler = init.handler;
 
-		mStrand.dispatch([this, &buffer, realHandler] () mutable {
+		mStrand.dispatch([this, buffer, realHandler] () mutable {
 			mReceives.emplace(std::make_pair(buffer, realHandler));
 			postReceives();
 			if (1 == mReceives.size()) {
