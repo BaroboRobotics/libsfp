@@ -163,6 +163,7 @@ private:
 		auto nRead = mStream.async_read_some(boost::asio::buffer(buf), yield);
 		for (size_t i = 0; i < nRead; ++i) {
 			auto rc = sfpDeliverOctet(&mContext, buf[i], nullptr, 0, nullptr);
+			(void)rc;
 			assert(-1 != rc);
 		}
 		flushWriteBuffer([] (sys::error_code) { });
