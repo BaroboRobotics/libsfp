@@ -171,7 +171,6 @@ private:
 
 	template <class Handler>
 	void handshakeCoroutine (Handler&& handler) {
-		BOOST_LOG(mLog) << "Spawning handshake write coroutine";
 		boost::asio::spawn(mStrand, [this, handler] (boost::asio::yield_context yield) mutable {
 			try {
 				// It is possible for the receive handler function to execute
@@ -190,14 +189,12 @@ private:
 				readCoroutine();
 
 				do {
-					BOOST_LOG(mLog) << "Sending sfp connect packet";
 					sfpConnect(&mContext);
 					flushWriteBuffer([] (sys::error_code) { });
 					mSfpTimer.expires_from_now(kSfpConnectTimeout);
 					mSfpTimer.async_wait(yield);
 				} while (!sfpIsConnected(&mContext));
 
-				BOOST_LOG(mLog) << "sfp appears to be connected";
 				mSfpTimer.expires_from_now(kSfpSettleTimeout);
 				mSfpTimer.async_wait(yield);
 				BOOST_LOG(mLog) << "sfp connection is settled";
@@ -229,8 +226,6 @@ private:
 	}
 
 	void postReceives () {
-		BOOST_LOG(mLog) << "mInbox.size() == " << mInbox.size() << " | mReceives.size() == "
-						<< mReceives.size();
 		while (mInbox.size() && mReceives.size()) {
 			auto nCopied = boost::asio::buffer_copy(mReceives.front().first,
 				boost::asio::buffer(mInbox.front()));
@@ -268,7 +263,6 @@ private:
 		mOutbox.emplace(std::make_pair(mWriteBuffer, handler));
 		mWriteBuffer.clear();
 		if (1 == mOutbox.size()) {
-			BOOST_LOG(mLog) << "spawning writer coroutine";
 			boost::asio::spawn(mStrand, [this] (boost::asio::yield_context yield) mutable {
 				try {
 					do {
