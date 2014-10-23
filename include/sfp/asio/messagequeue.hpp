@@ -174,12 +174,15 @@ private:
 		BOOST_LOG(mLog) << "Spawning handshake write coroutine";
 		boost::asio::spawn(mStrand, [this, handler] (boost::asio::yield_context yield) mutable {
 			try {
-				std::vector<uint8_t> readBuffer(1024);
-				mReceives.emplace(boost::asio::buffer(readBuffer),
-					[this, &readBuffer] (boost::system::error_code& ec, size_t messageSize) {
+				// It is possible for the receive handler function to execute
+				// after the handshake coroutine exits. Make sure our read
+				// buffer doesn't go out of scope.
+				auto readBuffer = std::make_shared<std::vector<uint8_t>>(1024);
+				mReceives.emplace(boost::asio::buffer(*readBuffer),
+					[this, readBuffer] (boost::system::error_code ec, size_t messageSize) {
 						if (!ec) {
-							readBuffer.resize(messageSize);
-							mInbox.push_front(readBuffer);
+							readBuffer->resize(messageSize);
+							mInbox.push_front(std::move(*readBuffer));
 						}
 					});
 
