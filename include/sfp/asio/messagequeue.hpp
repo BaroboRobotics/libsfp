@@ -41,6 +41,10 @@ public:
 		cancel(ec);
 	}
 
+	boost::asio::io_service& getIoService () {
+		return mStream.get_io_service();
+	}
+
 	void cancel () {
 		boost::system::error_code ec;
 		cancel(ec);
