@@ -43,7 +43,7 @@ public:
 	using ReceiveHandler = std::function<void(sys::error_code, size_t)>;
 	using SendHandler = std::function<void(sys::error_code)>;
 
-	boost::asio::io_service& getIoService () {
+	boost::asio::io_service& get_io_service () {
 		return mImpl->mStream.get_io_service();
 	}
 
