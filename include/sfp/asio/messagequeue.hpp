@@ -285,17 +285,12 @@ private:
 		}
 
 		void writeCoroutine (boost::asio::yield_context yield) {
-			try {
-				do {
-					boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().first), yield);
-					mStream.get_io_service().post(
-						std::bind(mOutbox.front().second, sys::error_code())
-					);
-					mOutbox.pop();
-				} while (mOutbox.size());
-			}
-			catch (boost::system::system_error& e) {
-				reset(e.code());
+			while (mOutbox.size()) {
+				auto outPair = mOutbox.front();
+				mOutbox.pop();
+				boost::system::error_code ec;
+				boost::asio::async_write(mStream, boost::asio::buffer(outPair.first), yield[ec]);
+				mStream.get_io_service().post(std::bind(outPair.second, ec));
 			}
 		}
 
