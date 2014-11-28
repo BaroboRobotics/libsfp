@@ -5,6 +5,8 @@
 #include <boost/asio.hpp>
 #include <boost/asio/use_future.hpp>
 
+#include <boost/log/sources/logger.hpp>
+
 #include <iostream>
 #include <functional>
 #include <thread>
@@ -17,11 +19,12 @@ int main (int argc, char** argv) {
     enum { SUCCEEDED, FAILED };
     int testResult = FAILED;
 
+    boost::log::sources::logger log;
     boost::asio::io_service ioService;
 
     using UnixDomainSocket = boost::asio::local::stream_protocol::socket;
-    sfp::asio::MessageQueue<UnixDomainSocket> alice { ioService };
-    sfp::asio::MessageQueue<UnixDomainSocket> bob { ioService };
+    sfp::asio::MessageQueue<UnixDomainSocket> alice { ioService, log };
+    sfp::asio::MessageQueue<UnixDomainSocket> bob { ioService, log };
 
 #ifdef SFP_CONFIG_DEBUG
     alice.setDebugName("alice");

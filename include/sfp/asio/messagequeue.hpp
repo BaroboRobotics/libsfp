@@ -11,6 +11,7 @@
 
 #include <boost/log/common.hpp>
 #include <boost/log/sources/logger.hpp>
+#include <boost/log/utility/manipulators/dump.hpp>
 
 #include <chrono>
 #include <memory>
@@ -34,9 +35,26 @@ public:
 		: mImpl(std::make_shared<Impl>(std::forward<Args>(args)...))
 	{}
 
+	friend void swap (MessageQueue& lhs, MessageQueue& rhs) {
+		using std::swap;
+		swap(lhs.mImpl, rhs.mImpl);
+	}
+
+	MessageQueue (MessageQueue&& that)
+		: mImpl(nullptr)
+	{
+		using std::swap;
+		swap(*this, that);
+	}
+
+	MessageQueue (const MessageQueue&) = delete;
+	MessageQueue& operator= (const MessageQueue&) = delete;
+
 	~MessageQueue () {
-		boost::system::error_code ec;
-		cancel(ec);
+		if (mImpl) {
+			boost::system::error_code ec;
+			cancel(ec);
+		}
 	}
 
 	using HandshakeHandler = std::function<void(sys::error_code)>;
@@ -108,6 +126,12 @@ public:
 
 		auto m = mImpl;
 		m->mStrand.dispatch([m, buffer, realHandler] () mutable {
+			auto data = boost::asio::buffer_cast<const uint8_t*>(buffer);
+			auto size = boost::asio::buffer_size(buffer);
+
+			BOOST_LOG(m->mLog) << "sending message: "
+							   << boost::log::dump(data, size, 16);
+
 			size_t outlen;
 			sfpWritePacket(&m->mContext,
 				boost::asio::buffer_cast<const uint8_t*>(buffer),
@@ -148,11 +172,14 @@ private:
     // handshakeCoroutine). This guarantees that all handlers/coroutines run
     // with access to a valid this pointer.
 	struct Impl : std::enable_shared_from_this<Impl> {
-		template <class... Args>
-		explicit Impl (Args&&... args)
-				: mStream(std::forward<Args>(args)...)
-				, mSfpTimer(mStream.get_io_service())
-				, mStrand(mStream.get_io_service()) { }
+		explicit Impl (boost::asio::io_service& ios, boost::log::sources::logger log)
+			: mStream(ios)
+			, mSfpTimer(mStream.get_io_service())
+			, mStrand(mStream.get_io_service())
+			, mLog(log)
+		{
+		    mLog.add_attribute("Protocol", boost::log::attributes::constant<std::string>("SFP"));
+		}
 
 		void cancel () {
 			boost::system::error_code ec;
@@ -199,6 +226,9 @@ private:
 						  ? sys::error_code()
 						  : make_error_code(boost::asio::error::message_size);
 
+				BOOST_LOG(mLog) << "received message: "
+								<< boost::log::dump(mInbox.front().data(), mInbox.front().size(), 16);
+
 				mStream.get_io_service().post(std::bind(mReceives.front().second, ec, nCopied));
 				mInbox.pop_front();
 				mReceives.pop();
@@ -221,6 +251,7 @@ private:
 
 		void onFirstUserMessage (std::shared_ptr<std::vector<uint8_t>> readBuffer, boost::system::error_code ec, size_t messageSize) {
 			if (!ec) {
+				BOOST_LOG(mLog) << "read too eagerly, pushing last message back onto queue";
 				readBuffer->resize(messageSize);
 				mInbox.push_front(std::move(*readBuffer));
 			}
@@ -239,20 +270,27 @@ private:
 				boost::asio::spawn(mStrand, std::bind(&Impl::readCoroutine, this->shared_from_this(), _1));
 
 				do {
+					BOOST_LOG(mLog) << "sending connect frame";
 					sfpConnect(&mContext);
-					flushWriteBuffer([] (sys::error_code) { });
+					auto m = this->shared_from_this();
+					// FIXME we should yield here--if there's an error sending, we want to terminate ASAP
+					flushWriteBuffer([m] (sys::error_code ec) {
+						BOOST_LOG(m->mLog) << "write buffer flushed from handshake coroutine with " << ec.message();
+					});
 					mSfpTimer.expires_from_now(kSfpConnectTimeout);
 					mSfpTimer.async_wait(yield);
 				} while (!sfpIsConnected(&mContext));
 
+				BOOST_LOG(mLog) << "remote end reports connection succeeded, scheduling settle timeout";
 				mSfpTimer.expires_from_now(kSfpSettleTimeout);
 				mSfpTimer.async_wait(yield);
-				BOOST_LOG(mLog) << "sfp connection is settled";
 
 				mStream.cancel();
+				BOOST_LOG(mLog) << "handshake complete";
 				mStream.get_io_service().post(std::bind(handler, sys::error_code()));
 			}
 			catch (sys::system_error& e) {
+				BOOST_LOG(mLog) << "handshake failed with " << e.what();
 				mStream.get_io_service().post(std::bind(handler, e.code()));
 				if (boost::asio::error::operation_aborted != e.code()) {
 					reset(e.code());
@@ -261,25 +299,33 @@ private:
 		}
 
 		void readAndWrite (boost::asio::yield_context yield) {
+			BOOST_LOG(mLog) << "reading ...";
 			uint8_t buf[256];
 			auto nRead = mStream.async_read_some(boost::asio::buffer(buf), yield);
+			BOOST_LOG(mLog) << "... finished read ...";
 			for (size_t i = 0; i < nRead; ++i) {
 				auto rc = sfpDeliverOctet(&mContext, buf[i], nullptr, 0, nullptr);
 				(void)rc;
 				assert(-1 != rc);
 			}
-			flushWriteBuffer([] (sys::error_code) { });
+			auto m = this->shared_from_this();
+			BOOST_LOG(mLog) << "... and writing";
+			flushWriteBuffer([m] (sys::error_code ec) {
+				BOOST_LOG(m->mLog) << "write buffer flushed from read coroutine with " << ec.message();
+			});
 		}
 
 		void readCoroutine (boost::asio::yield_context yield) {
 			try {
 				while (mReceives.size()) {
+					BOOST_LOG(mLog) << "readCoroutine: calling readAndWrite";
 					readAndWrite(yield);
+					BOOST_LOG(mLog) << "readCoroutine: calling postReceives";
 					postReceives();
 				}
 			}
 			catch (sys::system_error& e) {
-				BOOST_LOG(mLog) << "SFP MessageQueue " << this << " readCoroutine exception caught: " << e.what();
+				BOOST_LOG(mLog) << "readCoroutine: calling voidReceives";
 				voidReceives(e.code());
 			}
 		}
@@ -323,8 +369,6 @@ private:
 		static const std::chrono::milliseconds kSfpConnectTimeout;
 		static const std::chrono::milliseconds kSfpSettleTimeout;
 
-		mutable boost::log::sources::logger mLog;
-
 		std::deque<std::vector<uint8_t>> mInbox;
 		std::queue<std::pair<boost::asio::mutable_buffer, ReceiveHandler>> mReceives;
 
@@ -336,6 +380,8 @@ private:
 		boost::asio::io_service::strand mStrand;
 
 		SFPcontext mContext;
+
+		mutable boost::log::sources::logger mLog;
 	};
 
 	std::shared_ptr<Impl> mImpl;
