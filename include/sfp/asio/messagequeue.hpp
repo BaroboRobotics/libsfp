@@ -4,10 +4,11 @@
 #include "sfp/serial_framing_protocol.h"
 
 #include <boost/asio.hpp>
-#include <boost/asio/spawn.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <boost/asio/async_result.hpp>
+
+#include <boost/optional.hpp>
 
 #include <boost/log/common.hpp>
 #include <boost/log/sources/logger.hpp>
@@ -16,6 +17,7 @@
 #include <chrono>
 #include <memory>
 #include <queue>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -26,372 +28,542 @@ namespace sys = boost::system;
 
 using namespace std::placeholders;
 
-/* Convert a stream object into a message queue using SFP. */
-template <class Stream>
-class MessageQueue {
+template <class S>
+class MessageQueueImpl : public std::enable_shared_from_this<MessageQueueImpl<S>> {
 public:
-	template <class... Args>
-	explicit MessageQueue (Args&&... args)
-		: mImpl(std::make_shared<Impl>(std::forward<Args>(args)...))
-	{}
-
-	friend void swap (MessageQueue& lhs, MessageQueue& rhs) {
-		using std::swap;
-		swap(lhs.mImpl, rhs.mImpl);
-	}
-
-	MessageQueue (MessageQueue&& that)
-		: mImpl(nullptr)
-	{
-		using std::swap;
-		swap(*this, that);
-	}
-
-	MessageQueue (const MessageQueue&) = delete;
-	MessageQueue& operator= (const MessageQueue&) = delete;
-
-	~MessageQueue () {
-		if (mImpl) {
-			boost::system::error_code ec;
-			cancel(ec);
-		}
-	}
+	using Stream = S;
 
 	using HandshakeHandler = std::function<void(sys::error_code)>;
 	using ReceiveHandler = std::function<void(sys::error_code, size_t)>;
 	using SendHandler = std::function<void(sys::error_code)>;
 
-	boost::asio::io_service& get_io_service () {
-		return mImpl->mStream.get_io_service();
+	explicit MessageQueueImpl (boost::asio::io_service& ios)
+		: mStream(ios)
+		, mSfpTimer(mStream.get_io_service())
+		, mStrand(mStream.get_io_service())
+	{}
+
+	void init (boost::log::sources::logger log) {
+		mLog = log;
+	    mLog.add_attribute("Protocol", boost::log::attributes::constant<std::string>("SFP"));
 	}
 
-	void cancel () {
-		mImpl->cancel();
-	}
-
-	void cancel (boost::system::error_code& ec) {
-		mImpl->cancel(ec);
+	void destroy () {
+        boost::system::error_code ec;
+        cancel(ec);
 	}
 
 #ifdef SFP_CONFIG_DEBUG
 	void setDebugName (std::string debugName) {
-		sfpSetDebugName(&mImpl->mContext, debugName.c_str());
+		sfpSetDebugName(&mContext, debugName.c_str());
 	}
 #endif
 
-	Stream& stream () { return mImpl->mStream; }
-	const Stream& stream () const { return mImpl->mStream; }
+	void cancel () {
+		boost::system::error_code ec;
+		cancel(ec);
+		if (ec) {
+			throw boost::system::system_error(ec);
+		}
+	}
+
+	void cancel (boost::system::error_code& ec) {
+		boost::system::error_code localEc;
+		ec = localEc;
+		mStream.cancel(localEc);
+		if (localEc) {
+			ec = localEc;
+		}
+		mSfpTimer.cancel(localEc);
+		if (localEc) {
+			ec = localEc;
+		}
+	}
+
+	Stream& stream () { return mStream; }
+	const Stream& stream () const { return mStream; }
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncHandshake (Handler&& handler) {
+	asyncHandshake (boost::asio::io_service::work work, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
-		auto& realHandler = init.handler;
 
-		auto m = mImpl;
-		m->mStrand.dispatch([m, realHandler] () mutable {
-			m->reset(boost::asio::error::operation_aborted);
-			boost::asio::spawn(m->mStrand, std::bind(&Impl::handshakeCoroutine, m, realHandler, _1));
-		});
+		mStrand.post(std::bind(&MessageQueueImpl::asyncHandshakeImpl,
+			this->shared_from_this(), work, init.handler));
 
 		return init.result.get();
 	}
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncShutdown (Handler&& handler) {
+	asyncSend (boost::asio::io_service::work work, boost::asio::const_buffer buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code)
 		> init { std::forward<Handler>(handler) };
-		auto& realHandler = init.handler;
 
-		auto m = mImpl;
-		m->mStrand.dispatch([m, realHandler] () mutable {
-			m->reset(boost::asio::error::operation_aborted);
-			m->mStream.get_io_service().post(std::bind(realHandler, sys::error_code()));
-		});
-
-		return init.result.get();
-	}
-
-	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-	asyncSend (boost::asio::const_buffer buffer, Handler&& handler) {
-		boost::asio::detail::async_result_init<
-			Handler, void(boost::system::error_code)
-		> init { std::forward<Handler>(handler) };
-		auto& realHandler = init.handler;
-
-		auto m = mImpl;
-		m->mStrand.dispatch([m, buffer, realHandler] () mutable {
-			auto data = boost::asio::buffer_cast<const uint8_t*>(buffer);
-			auto size = boost::asio::buffer_size(buffer);
-
-			BOOST_LOG(m->mLog) << "sending message: "
-							   << boost::log::dump(data, size, 16);
-
-			size_t outlen;
-			sfpWritePacket(&m->mContext,
-				boost::asio::buffer_cast<const uint8_t*>(buffer),
-				boost::asio::buffer_size(buffer), &outlen);
-			m->flushWriteBuffer(realHandler);
-		});
+		mStrand.post(std::bind(&MessageQueueImpl::asyncSendImpl,
+			this->shared_from_this(), work, buffer, init.handler));
 
 		return init.result.get();
 	}
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
-	asyncReceive (boost::asio::mutable_buffer buffer, Handler&& handler) {
+	asyncReceive (boost::asio::io_service::work work, boost::asio::mutable_buffer buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
 			Handler, void(boost::system::error_code, size_t)
 		> init { std::forward<Handler>(handler) };
-		auto& realHandler = init.handler;
 
-		auto m = mImpl;
-		m->mStrand.dispatch([m, buffer, realHandler] () mutable {
-			m->mReceives.emplace(std::make_pair(buffer, realHandler));
-			m->postReceives();
-			if (1 == m->mReceives.size()) {
-				boost::asio::spawn(m->mStrand, std::bind(&Impl::readCoroutine, m, _1));
-			}
-		});
+		mStrand.post(std::bind(&MessageQueueImpl::asyncReceiveImpl,
+			this->shared_from_this(), work, buffer, init.handler));
 
 		return init.result.get();
 	}
 
 private:
-    // Since a MessageQueue can post handlers which might run after the
-    // MessageQueue is destroyed, all data members must be wrapped in a struct
-    // to be managed by a std::shared_ptr. All handlers must then have copy of
-    // this shared_ptr, either in their lambda capture list (as in the 'm' in
-    // MessageQueue's async* operations) or stored in their std::bind-created
-    // function object (as in the calls to this->shared_from_this() in
-    // handshakeCoroutine). This guarantees that all handlers/coroutines run
-    // with access to a valid this pointer.
-	struct Impl : std::enable_shared_from_this<Impl> {
-		explicit Impl (boost::asio::io_service& ios, boost::log::sources::logger log)
-			: mStream(ios)
-			, mSfpTimer(mStream.get_io_service())
-			, mStrand(mStream.get_io_service())
-			, mLog(log)
-		{
-		    mLog.add_attribute("Protocol", boost::log::attributes::constant<std::string>("SFP"));
-		}
+	struct SendData {
+		boost::asio::io_service::work work;
+		std::vector<uint8_t> buffer;
+		SendHandler handler;
+	};
 
-		void cancel () {
-			boost::system::error_code ec;
-			cancel(ec);
-			if (ec) {
-				throw boost::system::system_error(ec);
-			}
-		}
-		void cancel (boost::system::error_code& ec) {
-			boost::system::error_code localEc;
-			ec = localEc;
-			mStream.cancel(localEc);
-			if (localEc) {
-				ec = localEc;
-			}
-			mSfpTimer.cancel(localEc);
-			if (localEc) {
-				ec = localEc;
-			}
-		}
+	struct ReceiveData {
+		boost::asio::io_service::work work;
+		boost::asio::mutable_buffer buffer;
+		ReceiveHandler handler;
+	};
 
-		void reset (boost::system::error_code ec) {
-			cancel();
+	void asyncHandshakeImpl (boost::asio::io_service::work work, HandshakeHandler handler) {
+		reset(boost::asio::error::operation_aborted);
+		startReadPump();
+		doHandshake(work, handler);
+	}
 
-			postReceives();
-			voidReceives(ec);
-			mInbox = decltype(mInbox)();
+	void asyncSendImpl (boost::asio::io_service::work work,
+						boost::asio::const_buffer buffer,
+						SendHandler handler) {
+		auto data = boost::asio::buffer_cast<const uint8_t*>(buffer);
+		auto size = boost::asio::buffer_size(buffer);
 
-			voidOutbox(ec);
-			mWriteBuffer.clear();
+		BOOST_LOG(mLog) << "sending message: "
+					    << boost::log::dump(data, size, 16);
 
-			sfpInit(&mContext);
-			sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
-				(void*)writeCallback, this);
-			sfpSetDeliverCallback(&mContext, deliverCallback, this);
-		}
+		size_t outlen;
+		sfpWritePacket(&mContext,
+			boost::asio::buffer_cast<const uint8_t*>(buffer),
+			boost::asio::buffer_size(buffer), &outlen);
+		flushWriteBuffer(work, [handler] (boost::system::error_code ec) { handler(ec); });
+	}
 
-		void postReceives () {
-			while (mInbox.size() && mReceives.size()) {
-				auto nCopied = boost::asio::buffer_copy(mReceives.front().first,
-					boost::asio::buffer(mInbox.front()));
+	void asyncReceiveImpl (boost::asio::io_service::work work,
+						   boost::asio::mutable_buffer buffer,
+						   ReceiveHandler handler) {
+		mReceives.emplace(ReceiveData{work, buffer, handler});
+		postReceives();
+	}
 
-				auto ec = nCopied == mInbox.front().size()
-						  ? sys::error_code()
-						  : make_error_code(boost::asio::error::message_size);
+	void reset (boost::system::error_code ec) {
+		cancel();
 
-				BOOST_LOG(mLog) << "received message: "
-								<< boost::log::dump(mInbox.front().data(), mInbox.front().size(), 16);
+		postReceives();
+		mInbox = decltype(mInbox)();
 
-				mStream.get_io_service().post(std::bind(mReceives.front().second, ec, nCopied));
-				mInbox.pop_front();
-				mReceives.pop();
-			}
-		}
+		mWriteBuffer.clear();
 
-		void voidReceives (boost::system::error_code ec) {
-			while (mReceives.size()) {
-				mStream.get_io_service().post(std::bind(mReceives.front().second, ec, 0));
-				mReceives.pop();
-			}
-		}
+		sfpInit(&mContext);
+		sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
+			(void*)writeCallback, this);
+		sfpSetDeliverCallback(&mContext, deliverCallback, this);
+	}
 
-		void voidOutbox (boost::system::error_code ec) {
-			while (mOutbox.size()) {
-				mStream.get_io_service().post(std::bind(mOutbox.front().second, ec));
-				mOutbox.pop();
-			}
-		}
+	void doHandshake (boost::asio::io_service::work work, HandshakeHandler handler) {
+		boost::asio::io_service::work localWork { mStream.get_io_service() };
+		sfpConnect(&mContext);
+		flushWriteBuffer(localWork, mStrand.wrap(
+			std::bind(&MessageQueueImpl::handshakeStepOne,
+				this->shared_from_this(), work, handler, _1)));
+	}
 
-		void onFirstUserMessage (std::shared_ptr<std::vector<uint8_t>> readBuffer, boost::system::error_code ec, size_t messageSize) {
-			if (!ec) {
-				BOOST_LOG(mLog) << "read too eagerly, pushing last message back onto queue";
-				readBuffer->resize(messageSize);
-				mInbox.push_front(std::move(*readBuffer));
-			}
-		}
-
-		void handshakeCoroutine (HandshakeHandler handler, boost::asio::yield_context yield) {
-			try {
-				// It is possible for the receive handler function to execute
-				// after the handshake coroutine exits. Make sure our read
-				// buffer doesn't go out of scope.
-				auto readBuffer = std::make_shared<std::vector<uint8_t>>(1024);
-				mReceives.emplace(boost::asio::buffer(*readBuffer),
-					std::bind(&Impl::onFirstUserMessage, this->shared_from_this(), readBuffer, _1, _2));
-
-				assert(1 == mReceives.size());
-				boost::asio::spawn(mStrand, std::bind(&Impl::readCoroutine, this->shared_from_this(), _1));
-
-				do {
-					BOOST_LOG(mLog) << "sending connect frame";
-					sfpConnect(&mContext);
-					auto m = this->shared_from_this();
-					// FIXME we should yield here--if there's an error sending, we want to terminate ASAP
-					flushWriteBuffer([m] (sys::error_code ec) {
-						BOOST_LOG(m->mLog) << "write buffer flushed from handshake coroutine with " << ec.message();
-					});
-					mSfpTimer.expires_from_now(kSfpConnectTimeout);
-					mSfpTimer.async_wait(yield);
-				} while (!sfpIsConnected(&mContext));
-
-				BOOST_LOG(mLog) << "remote end reports connection succeeded, scheduling settle timeout";
+	void handshakeStepOne (boost::asio::io_service::work work,
+						   HandshakeHandler handler,
+						   boost::system::error_code ec) {
+		if (!ec) {
+			if (sfpIsConnected(&mContext)) {
 				mSfpTimer.expires_from_now(kSfpSettleTimeout);
-				mSfpTimer.async_wait(yield);
-
-				mStream.cancel();
-				BOOST_LOG(mLog) << "handshake complete";
-				mStream.get_io_service().post(std::bind(handler, sys::error_code()));
+				mSfpTimer.async_wait(mStrand.wrap(
+					std::bind(&MessageQueueImpl::handshakeFinish,
+						this->shared_from_this(), work, handler, _1)));
 			}
-			catch (sys::system_error& e) {
-				BOOST_LOG(mLog) << "handshake failed with " << e.what();
-				mStream.get_io_service().post(std::bind(handler, e.code()));
-				if (boost::asio::error::operation_aborted != e.code()) {
-					reset(e.code());
-				}
+			else {
+				mSfpTimer.expires_from_now(kSfpConnectTimeout);
+				mSfpTimer.async_wait(mStrand.wrap(
+					std::bind(&MessageQueueImpl::handshakeStepTwo,
+						this->shared_from_this(), work, handler, _1)));
 			}
 		}
+		else {
+			BOOST_LOG(mLog) << "Handshake step one failed: " << ec.message();
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, ec));
+		}
+	}
 
-		void readAndWrite (boost::asio::yield_context yield) {
-			BOOST_LOG(mLog) << "reading ...";
-			uint8_t buf[256];
-			auto nRead = mStream.async_read_some(boost::asio::buffer(buf), yield);
-			BOOST_LOG(mLog) << "... finished read ...";
+	void handshakeStepTwo (boost::asio::io_service::work work,
+						   HandshakeHandler handler,
+						   boost::system::error_code ec) {
+		if (!ec) {
+			if (sfpIsConnected(&mContext)) {
+				mSfpTimer.expires_from_now(kSfpSettleTimeout);
+				mSfpTimer.async_wait(mStrand.wrap(
+					std::bind(&MessageQueueImpl::handshakeFinish,
+						this->shared_from_this(), work, handler, _1)));
+			}
+			else {
+				doHandshake(work, handler);
+			}
+		}
+		else {
+			BOOST_LOG(mLog) << "Handshake step two failed: " << ec.message();
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, ec));
+		}
+	}
+
+	void handshakeFinish (boost::asio::io_service::work work,
+						   HandshakeHandler handler,
+						   boost::system::error_code ec) {
+		if (!ec) {
+			if (sfpIsConnected(&mContext)) {
+				auto& ios = work.get_io_service();
+				ios.post(std::bind(handler, ec));
+				BOOST_LOG(mLog) << "handshake complete";
+			}
+			else {
+				doHandshake(work, handler);
+			}
+		}
+		else {
+			BOOST_LOG(mLog) << "Handshake finish failed: " << ec.message();
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, ec));
+		}
+	}
+
+	void startReadPump () {
+		if (mReadPumpRunning) {
+			return;
+		}
+		mReadPumpRunning = true;
+		auto buf = std::make_shared<std::vector<uint8_t>>(1024);
+		readPump(buf);
+	}
+
+	void readPump (std::shared_ptr<std::vector<uint8_t>> buf) {
+		mStream.async_read_some(boost::asio::buffer(*buf), mStrand.wrap(
+			std::bind(&MessageQueueImpl::handleRead,
+				this->shared_from_this(), buf, _1, _2)));
+	}
+
+	void handleRead (std::shared_ptr<std::vector<uint8_t>> buf,
+					 boost::system::error_code ec,
+					 size_t nRead) {
+		if (!ec) {
 			for (size_t i = 0; i < nRead; ++i) {
-				auto rc = sfpDeliverOctet(&mContext, buf[i], nullptr, 0, nullptr);
+				auto rc = sfpDeliverOctet(&mContext, (*buf)[i], nullptr, 0, nullptr);
 				(void)rc;
 				assert(-1 != rc);
 			}
-			auto m = this->shared_from_this();
-			BOOST_LOG(mLog) << "... and writing";
-			flushWriteBuffer([m] (sys::error_code ec) {
-				BOOST_LOG(m->mLog) << "write buffer flushed from read coroutine with " << ec.message();
+			auto self = this->shared_from_this();
+			boost::asio::io_service::work localWork { mStream.get_io_service() };
+			flushWriteBuffer(localWork, [self, this] (sys::error_code ec) {
+				BOOST_LOG(mLog) << "write buffer flushed from read coroutine with " << ec.message();
 			});
+			postReceives();
+			readPump(buf);
 		}
-
-		void readCoroutine (boost::asio::yield_context yield) {
-			try {
-				while (mReceives.size()) {
-					BOOST_LOG(mLog) << "readCoroutine: calling readAndWrite";
-					readAndWrite(yield);
-					BOOST_LOG(mLog) << "readCoroutine: calling postReceives";
-					postReceives();
-				}
-			}
-			catch (sys::system_error& e) {
-				BOOST_LOG(mLog) << "readCoroutine: calling voidReceives";
-				voidReceives(e.code());
-			}
+		else {
+			BOOST_LOG(mLog) << "read pump: " << ec.message();
+			voidReceives(ec);
+			mReadPumpRunning = false;
 		}
+	}
 
-		void writeCoroutine (boost::asio::yield_context yield) {
-			while (mOutbox.size()) {
-				auto outPair = mOutbox.front();
-				mOutbox.pop();
-				boost::system::error_code ec;
-				boost::asio::async_write(mStream, boost::asio::buffer(outPair.first), yield[ec]);
-				mStream.get_io_service().post(std::bind(outPair.second, ec));
-			}
+	void flushWriteBuffer (boost::asio::io_service::work work, SendHandler handler) {
+		if (!mWriteBuffer.size()) {
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, sys::error_code()));
+			return;
 		}
-
-		// pushes octets onto a vector, a write buffer
-		static int writeCallback (uint8_t* octets, size_t len, size_t* outlen, void* data) {
-			auto& writeBuffer = static_cast<MessageQueue::Impl*>(data)->mWriteBuffer;
-			writeBuffer.insert(writeBuffer.end(), octets, octets + len);
-			if (outlen) { *outlen = len; }
-			return 0;
+		mOutbox.emplace(SendData{work, mWriteBuffer, handler});
+		mWriteBuffer.clear();
+		if (1 == mOutbox.size()) {
+			writePump();
 		}
+	}
 
-		// Receive one message. Push onto a queue of incoming messages.
-		static void deliverCallback (uint8_t* buf, size_t len, void* data) {
-			static_cast<MessageQueue::Impl*>(data)->mInbox.emplace_back(buf, buf + len);
+	void writePump () {
+		if (mOutbox.size()) {
+			boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().buffer), mStrand.wrap(
+				std::bind(&MessageQueueImpl::handleWrite,
+					this->shared_from_this(), _1, _2)));
 		}
+	}
 
-		template <class Handler>
-		void flushWriteBuffer (Handler handler) {
-			if (!mWriteBuffer.size()) {
-				mStream.get_io_service().post(std::bind(handler, sys::error_code()));
-				return;
-			}
-			mOutbox.emplace(std::make_pair(mWriteBuffer, handler));
-			mWriteBuffer.clear();
-			if (1 == mOutbox.size()) {
-				boost::asio::spawn(mStrand, std::bind(&Impl::writeCoroutine, this->shared_from_this(), _1));
-			}
+	void handleWrite (boost::system::error_code ec, size_t nWritten) {
+		if (!ec) {
+			assert(mOutbox.front().buffer.size() == nWritten);
+			auto& ios = mOutbox.front().work.get_io_service();
+			ios.post(std::bind(mOutbox.front().handler, ec));
+			mOutbox.pop();
+			writePump();
 		}
+		else {
+			BOOST_LOG(mLog) << "write pump: " << ec.message();
+			voidOutbox(ec);
+		}
+	}
 
-		static const std::chrono::milliseconds kSfpConnectTimeout;
-		static const std::chrono::milliseconds kSfpSettleTimeout;
+	void postReceives () {
+		while (mInbox.size() && mReceives.size()) {
+			auto& receive = mReceives.front();
+			auto nCopied = boost::asio::buffer_copy(receive.buffer,
+				boost::asio::buffer(mInbox.front()));
 
-		std::deque<std::vector<uint8_t>> mInbox;
-		std::queue<std::pair<boost::asio::mutable_buffer, ReceiveHandler>> mReceives;
+			auto ec = nCopied == mInbox.front().size()
+					  ? sys::error_code()
+					  : make_error_code(boost::asio::error::message_size);
 
-		std::vector<uint8_t> mWriteBuffer;
-		std::queue<std::pair<std::vector<uint8_t>, SendHandler>> mOutbox;
+			BOOST_LOG(mLog) << "received message: "
+							<< boost::log::dump(mInbox.front().data(), mInbox.front().size(), 16);
 
-		Stream mStream;
-		boost::asio::steady_timer mSfpTimer;
-		boost::asio::io_service::strand mStrand;
+			auto& ios = receive.work.get_io_service();
+			ios.post(std::bind(receive.handler, ec, nCopied));
+			mInbox.pop();
+			mReceives.pop();
+		}
+	}
 
-		SFPcontext mContext;
+	void voidReceives (boost::system::error_code ec) {
+		while (mReceives.size()) {
+			auto& receive = mReceives.front();
+			auto& ios = receive.work.get_io_service();
+			ios.post(std::bind(receive.handler, ec, 0));
+			mReceives.pop();
+		}
+	}
 
-		mutable boost::log::sources::logger mLog;
-	};
+	void voidOutbox (boost::system::error_code ec) {
+		while (mOutbox.size()) {
+			auto& ios = mOutbox.front().work.get_io_service();
+			ios.post(std::bind(mOutbox.front().handler, ec));
+			mOutbox.pop();
+		}
+	}
 
-	std::shared_ptr<Impl> mImpl;
+	// pushes octets onto a vector, a write buffer
+	static int writeCallback (uint8_t* octets, size_t len, size_t* outlen, void* data) {
+		auto& writeBuffer = static_cast<MessageQueueImpl*>(data)->mWriteBuffer;
+		writeBuffer.insert(writeBuffer.end(), octets, octets + len);
+		if (outlen) { *outlen = len; }
+		return 0;
+	}
+
+	// Receive one message. Push onto a queue of incoming messages.
+	static void deliverCallback (uint8_t* buf, size_t len, void* data) {
+		static_cast<MessageQueueImpl*>(data)->mInbox.emplace(buf, buf + len);
+	}
+
+	static const std::chrono::milliseconds kSfpConnectTimeout;
+	static const std::chrono::milliseconds kSfpSettleTimeout;
+
+	std::queue<std::vector<uint8_t>> mInbox;
+	std::queue<ReceiveData> mReceives;
+
+	std::vector<uint8_t> mWriteBuffer;
+	std::queue<SendData> mOutbox;
+
+	bool mReadPumpRunning = false;
+
+	Stream mStream;
+	boost::asio::steady_timer mSfpTimer;
+	boost::asio::io_service::strand mStrand;
+
+	SFPcontext mContext;
+
+	mutable boost::log::sources::logger mLog;
 };
 
 template <class Stream>
-const std::chrono::milliseconds MessageQueue<Stream>::Impl::kSfpConnectTimeout { 100 };
+const std::chrono::milliseconds MessageQueueImpl<Stream>::kSfpConnectTimeout { 100 };
 
 template <class Stream>
-const std::chrono::milliseconds MessageQueue<Stream>::Impl::kSfpSettleTimeout { 200 };
+const std::chrono::milliseconds MessageQueueImpl<Stream>::kSfpSettleTimeout { 200 };
+
+template <class Impl>
+class MessageQueueService : public boost::asio::io_service::service {
+public:
+	using Stream = typename Impl::Stream;
+
+    static boost::asio::io_service::id id;
+
+    explicit MessageQueueService (boost::asio::io_service& ios)
+        : boost::asio::io_service::service(ios)
+        , mAsyncWork(boost::in_place(std::ref(mAsyncIoService)))
+        , mAsyncThread(static_cast<
+			size_t(boost::asio::io_service::*)()
+			>(&boost::asio::io_service::run), &mAsyncIoService)
+    {}
+
+    ~MessageQueueService () {
+        mAsyncWork = boost::none;
+        mAsyncIoService.stop();
+        mAsyncThread.join();
+    }
+
+    using implementation_type = std::shared_ptr<Impl>;
+
+    void construct (implementation_type& impl) {
+        impl.reset(new Impl(mAsyncIoService));
+    }
+
+    void move_construct (implementation_type& impl, implementation_type& other) {
+		impl = std::move(other);
+    }
+
+    void destroy (implementation_type& impl) {
+        impl->destroy();
+        impl.reset();
+    }
+
+    void cancel (implementation_type& impl, boost::system::error_code& ec) {
+        impl->cancel(ec);
+    }
+
+    void init (implementation_type& impl, boost::log::sources::logger log) {
+        impl->init(log);
+    }
+
+    boost::log::sources::logger log (const implementation_type& impl) const {
+        return impl->log();
+    }
+
+    #ifdef SFP_CONFIG_DEBUG
+	void setDebugName (implementation_type& impl, std::string debugName) {
+		impl->setDebugName(debugName);
+	}
+#endif
+
+	Stream& stream (implementation_type& impl) {
+		return impl->stream();
+	}
+
+	const Stream& stream (implementation_type& impl) const {
+		return impl->stream();
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncHandshake (implementation_type& impl, Handler&& handler) {
+        boost::asio::io_service::work work { this->get_io_service() };
+        return impl->asyncHandshake(work, std::forward<Handler>(handler));
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncSend (implementation_type& impl, boost::asio::const_buffer buffer, Handler&& handler) {
+        boost::asio::io_service::work work { this->get_io_service() };
+        return impl->asyncSend(work, buffer, std::forward<Handler>(handler));
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
+	asyncReceive (implementation_type& impl, boost::asio::mutable_buffer buffer, Handler&& handler) {
+        boost::asio::io_service::work work { this->get_io_service() };
+        return impl->asyncReceive(work, buffer, std::forward<Handler>(handler));
+	}
+
+private:
+    void shutdown_service () {}
+
+    boost::asio::io_service mAsyncIoService;
+    boost::optional<boost::asio::io_service::work> mAsyncWork;
+    std::thread mAsyncThread;
+};
+
+template <class Impl>
+boost::asio::io_service::id MessageQueueService<Impl>::id;
+
+/* Convert a stream object into a message queue using SFP. */
+template <class Service>
+class BasicMessageQueue : public boost::asio::basic_io_object<Service> {
+public:
+	using Stream = typename Service::Stream;
+
+	BasicMessageQueue (boost::asio::io_service& ios, boost::log::sources::logger log)
+		: boost::asio::basic_io_object<Service>(ios)
+	{
+        this->get_service().init(this->get_implementation(), log);
+	}
+
+	BasicMessageQueue (const BasicMessageQueue&) = delete;
+	BasicMessageQueue& operator= (const BasicMessageQueue&) = delete;
+
+    void cancel () {
+        boost::system::error_code ec;
+        cancel(ec);
+        if (ec) {
+            throw boost::system::system_error(ec);
+        }
+    }
+
+    void cancel (boost::system::error_code& ec) {
+        this->get_service().cancel(this->get_implementation(), ec);
+    }
+
+    boost::log::sources::logger log () const {
+        return this->get_service().log(this->get_implementation());
+    }
+
+#ifdef SFP_CONFIG_DEBUG
+	void setDebugName (std::string debugName) {
+		this->get_service().setDebugName(this->get_implementation(), debugName);
+	}
+#endif
+
+	Stream& stream () {
+		return this->get_service().stream(this->get_implementation());
+	}
+
+	const Stream& stream () const {
+		return this->get_service().stream(this->get_implementation());
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncHandshake (Handler&& handler) {
+		return this->get_service().asyncHandshake(this->get_implementation(),
+			std::forward<Handler>(handler));
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	asyncSend (boost::asio::const_buffer buffer, Handler&& handler) {
+		return this->get_service().asyncSend(this->get_implementation(),
+			buffer, std::forward<Handler>(handler));
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
+	asyncReceive (boost::asio::mutable_buffer buffer, Handler&& handler) {
+		return this->get_service().asyncReceive(this->get_implementation(),
+			buffer, std::forward<Handler>(handler));
+	}
+};
+
+template <class Stream>
+using MessageQueue = BasicMessageQueue<MessageQueueService<MessageQueueImpl<Stream>>>;
 
 } // namespace asio
 } // namespace sfp

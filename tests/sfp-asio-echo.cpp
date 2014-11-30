@@ -4,6 +4,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/use_future.hpp>
+#include <boost/asio/spawn.hpp>
 
 #include <boost/log/sources/logger.hpp>
 
@@ -46,7 +47,6 @@ int main (int argc, char** argv) {
             bob.asyncSend(boost::asio::buffer(in, messageSize), yield);
             std::cout << "bob echoed a message\n";
 
-            bob.asyncShutdown(yield);
             std::cout << "bob shut down\n";
         }
         catch (boost::system::system_error& e) {
@@ -90,7 +90,6 @@ int main (int argc, char** argv) {
             testResult = SUCCEEDED;
         }
 
-        alice.asyncShutdown(boost::asio::use_future).get();
         std::cout << "alice shut down\n";
     }
     catch (boost::system::system_error& e) {
