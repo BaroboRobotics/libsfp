@@ -7,7 +7,7 @@ if(NOT TBB_INCLUDE_DIR)
 endif()
 
 set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.54.0 REQUIRED system filesystem log thread)
+find_package(Boost 1.54.0 REQUIRED system filesystem log thread coroutine context)
 
 set_source_files_properties(
     sfp-echo.cpp
