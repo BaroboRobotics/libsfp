@@ -51,6 +51,7 @@ public:
 	void destroy () {
         boost::system::error_code ec;
         cancel(ec);
+        mStream.close();
 	}
 
 #ifdef SFP_CONFIG_DEBUG
@@ -70,14 +71,12 @@ public:
 	void cancel (boost::system::error_code& ec) {
 		boost::system::error_code localEc;
 		ec = localEc;
-		mStream.cancel(localEc);
-		if (localEc) {
-			ec = localEc;
-		}
 		mSfpTimer.cancel(localEc);
 		if (localEc) {
 			ec = localEc;
 		}
+#warning sfp::asio::MessageQueue::cancel is only half-functional, FIXME
+// Maybe we could go the mutex route? Lock a mutex, then void the handlers. Ugly, oh well
 	}
 
 	Stream& stream () { return mStream; }
