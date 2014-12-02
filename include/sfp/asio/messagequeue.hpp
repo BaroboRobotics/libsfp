@@ -147,7 +147,7 @@ private:
 		auto size = boost::asio::buffer_size(buffer);
 
 		BOOST_LOG(mLog) << "sending message: "
-					    << boost::log::dump(data, size, 16);
+					    << boost::log::dump(data, size, 8);
 
 		size_t outlen;
 		sfpWritePacket(&mContext,
@@ -335,7 +335,7 @@ private:
 					  : make_error_code(boost::asio::error::message_size);
 
 			BOOST_LOG(mLog) << "received message: "
-							<< boost::log::dump(mInbox.front().data(), mInbox.front().size(), 16);
+							<< boost::log::dump(mInbox.front().data(), mInbox.front().size(), 8);
 
 			auto& ios = receive.work.get_io_service();
 			ios.post(std::bind(receive.handler, ec, nCopied));
