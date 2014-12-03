@@ -51,8 +51,8 @@ int main (int argc, char** argv) {
         }
         catch (boost::system::system_error& e) {
             std::cout << "bob code threw " << e.what() << std::endl;
-            bob.cancel();
-            alice.cancel();
+            bob.close();
+            alice.close();
         }
     });
 
@@ -94,8 +94,8 @@ int main (int argc, char** argv) {
     }
     catch (boost::system::system_error& e) {
         std::cout << "alice code threw " << e.what() << std::endl;
-        bob.cancel();
-        alice.cancel();
+        bob.close();
+        alice.close();
     }
 
     work = boost::none;
