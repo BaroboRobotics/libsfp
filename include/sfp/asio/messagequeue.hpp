@@ -543,6 +543,69 @@ public:
 template <class Stream>
 using MessageQueue = BasicMessageQueue<MessageQueueService<MessageQueueImpl<Stream>>>;
 
+template <class MQ, class Duration, class Handler>
+struct KeepaliveOperation : std::enable_shared_from_this<KeepaliveOperation<MQ, Duration, Handler>> {
+    KeepaliveOperation (MQ& messageQueue, Duration timeout)
+        : mIos(messageQueue.get_io_service())
+        , mStrand(mIos)
+        , mTimer(mIos)
+        , mMessageQueue(messageQueue)
+        , mTimeout(timeout)
+    {}
+
+    void start (Handler handler) {
+		mTimer.expires_from_now(mTimeout);
+		mTimer.async_wait(mStrand.wrap(
+			std::bind(&KeepaliveOperation::stepOne,
+				this->shared_from_this(), handler, _1)));
+	}
+
+	void stepOne (Handler handler, boost::system::error_code ec) {
+		if (!ec) {
+			mMessageQueue.asyncSend(boost::asio::const_buffer(), mStrand.wrap(
+				std::bind(&KeepaliveOperation::stepTwo,
+					this->shared_from_this(), handler, _1)));
+		}
+		else {
+			// realistically, never reached?
+			mIos.post(std::bind(handler, ec));
+		}
+	}
+
+	void stepTwo (Handler handler, boost::system::error_code ec) {
+		if (!ec) {
+			start(handler);
+		}
+		else {
+			mIos.post(std::bind(handler, ec));
+		}
+    }
+
+    boost::asio::io_service& mIos;
+    boost::asio::io_service::strand mStrand;
+    boost::asio::steady_timer mTimer;
+    MQ& mMessageQueue;
+    const Duration mTimeout;
+};
+
+// Ping the remote end of the message queue every given timeout interval with
+// zero-length messages, to make sure our device is still working. If such a
+// zero-length message fails to send, forward the error code produced to the
+// user's handler.
+template <class MQ, class Duration, class Handler>
+BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+asyncKeepalive (MQ& messageQueue, Duration timeout, Handler&& handler) {
+    boost::asio::detail::async_result_init<
+        Handler, void(boost::system::error_code)
+    > init { std::forward<Handler>(handler) };
+
+    using Op = KeepaliveOperation<MQ, Duration, decltype(init.handler)>;
+    std::make_shared<Op>(messageQueue, timeout)->start(init.handler);
+
+    return init.result.get();
+}
+
+
 } // namespace asio
 } // namespace sfp
 
