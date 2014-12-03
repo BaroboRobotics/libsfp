@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <queue>
 #include <thread>
 #include <utility>
@@ -50,8 +51,12 @@ public:
 
 	void destroy () {
         boost::system::error_code ec;
-        cancel(ec);
-        mStream.close();
+        close(ec);
+	}
+
+	void close (boost::system::error_code ec) {
+        mSfpTimer.cancel(ec);
+		mStream.close(ec);
 	}
 
 #ifdef SFP_CONFIG_DEBUG
@@ -59,25 +64,6 @@ public:
 		sfpSetDebugName(&mContext, debugName.c_str());
 	}
 #endif
-
-	void cancel () {
-		boost::system::error_code ec;
-		cancel(ec);
-		if (ec) {
-			throw boost::system::system_error(ec);
-		}
-	}
-
-	void cancel (boost::system::error_code& ec) {
-		boost::system::error_code localEc;
-		ec = localEc;
-		mSfpTimer.cancel(localEc);
-		if (localEc) {
-			ec = localEc;
-		}
-#warning sfp::asio::MessageQueue::cancel is only half-functional, FIXME
-// Maybe we could go the mutex route? Lock a mutex, then void the handlers. Ugly, oh well
-	}
 
 	Stream& stream () { return mStream; }
 	const Stream& stream () const { return mStream; }
@@ -135,7 +121,17 @@ private:
 	};
 
 	void asyncHandshakeImpl (boost::asio::io_service::work work, HandshakeHandler handler) {
-		reset(boost::asio::error::operation_aborted);
+		postReceives();
+		voidReceives(boost::asio::error::operation_aborted);
+		mInbox = decltype(mInbox)();
+
+		mWriteBuffer.clear();
+
+		sfpInit(&mContext);
+		sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
+			(void*)writeCallback, this);
+		sfpSetDeliverCallback(&mContext, deliverCallback, this);
+
 		startReadPump();
 		doHandshake(work, handler);
 	}
@@ -143,12 +139,6 @@ private:
 	void asyncSendImpl (boost::asio::io_service::work work,
 						boost::asio::const_buffer buffer,
 						SendHandler handler) {
-		auto data = boost::asio::buffer_cast<const uint8_t*>(buffer);
-		auto size = boost::asio::buffer_size(buffer);
-
-		BOOST_LOG(mLog) << "sending message: "
-					    << boost::log::dump(data, size, 8);
-
 		size_t outlen;
 		sfpWritePacket(&mContext,
 			boost::asio::buffer_cast<const uint8_t*>(buffer),
@@ -159,22 +149,11 @@ private:
 	void asyncReceiveImpl (boost::asio::io_service::work work,
 						   boost::asio::mutable_buffer buffer,
 						   ReceiveHandler handler) {
-		mReceives.emplace(ReceiveData{work, buffer, handler});
+		{
+			std::lock_guard<std::mutex> lock { mReceivesMutex };
+			mReceives.emplace(ReceiveData{work, buffer, handler});
+		}
 		postReceives();
-	}
-
-	void reset (boost::system::error_code ec) {
-		cancel();
-
-		postReceives();
-		mInbox = decltype(mInbox)();
-
-		mWriteBuffer.clear();
-
-		sfpInit(&mContext);
-		sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
-			(void*)writeCallback, this);
-		sfpSetDeliverCallback(&mContext, deliverCallback, this);
 	}
 
 	void doHandshake (boost::asio::io_service::work work, HandshakeHandler handler) {
@@ -325,6 +304,7 @@ private:
 	}
 
 	void postReceives () {
+		std::lock_guard<std::mutex> lock { mReceivesMutex };
 		while (mInbox.size() && mReceives.size()) {
 			auto& receive = mReceives.front();
 			auto nCopied = boost::asio::buffer_copy(receive.buffer,
@@ -334,9 +314,6 @@ private:
 					  ? sys::error_code()
 					  : make_error_code(boost::asio::error::message_size);
 
-			BOOST_LOG(mLog) << "received message: "
-							<< boost::log::dump(mInbox.front().data(), mInbox.front().size(), 8);
-
 			auto& ios = receive.work.get_io_service();
 			ios.post(std::bind(receive.handler, ec, nCopied));
 			mInbox.pop();
@@ -345,6 +322,7 @@ private:
 	}
 
 	void voidReceives (boost::system::error_code ec) {
+		std::lock_guard<std::mutex> lock { mReceivesMutex };
 		while (mReceives.size()) {
 			auto& receive = mReceives.front();
 			auto& ios = receive.work.get_io_service();
@@ -379,6 +357,7 @@ private:
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;
+	std::mutex mReceivesMutex;
 
 	std::vector<uint8_t> mWriteBuffer;
 	std::queue<SendData> mOutbox;
@@ -436,8 +415,8 @@ public:
         impl.reset();
     }
 
-    void cancel (implementation_type& impl, boost::system::error_code& ec) {
-        impl->cancel(ec);
+    void close (implementation_type& impl, boost::system::error_code& ec) {
+        impl->close(ec);
     }
 
     void init (implementation_type& impl, boost::log::sources::logger log) {
@@ -509,16 +488,16 @@ public:
 	BasicMessageQueue (const BasicMessageQueue&) = delete;
 	BasicMessageQueue& operator= (const BasicMessageQueue&) = delete;
 
-    void cancel () {
-        boost::system::error_code ec;
-        cancel(ec);
-        if (ec) {
-            throw boost::system::system_error(ec);
-        }
-    }
+	void close () {
+		boost::system::error_code ec;
+		close(ec);
+		if (ec) {
+			throw boost::system::system_error(ec);
+		}
+	}
 
-    void cancel (boost::system::error_code& ec) {
-        this->get_service().cancel(this->get_implementation(), ec);
+    void close (boost::system::error_code& ec) {
+        this->get_service().close(this->get_implementation(), ec);
     }
 
     boost::log::sources::logger log () const {
