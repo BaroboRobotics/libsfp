@@ -352,8 +352,8 @@ private:
 		static_cast<MessageQueueImpl*>(data)->mInbox.emplace(buf, buf + len);
 	}
 
-	static const std::chrono::milliseconds kSfpConnectTimeout;
-	static const std::chrono::milliseconds kSfpSettleTimeout;
+	std::chrono::milliseconds kSfpConnectTimeout { 100 } ;
+	std::chrono::milliseconds kSfpSettleTimeout { 200 } ;
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;
@@ -372,12 +372,6 @@ private:
 
 	mutable boost::log::sources::logger mLog;
 };
-
-template <class Stream>
-const std::chrono::milliseconds MessageQueueImpl<Stream>::kSfpConnectTimeout { 100 };
-
-template <class Stream>
-const std::chrono::milliseconds MessageQueueImpl<Stream>::kSfpSettleTimeout { 200 };
 
 template <class Impl>
 class MessageQueueService : public boost::asio::io_service::service {
