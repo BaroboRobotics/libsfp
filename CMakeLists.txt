@@ -1,68 +1,60 @@
 # Serial Framing Protocol library
 # Barobo, Inc.
 
-cmake_minimum_required(VERSION 2.8.9)
-project(LIBSFP C)
+cmake_minimum_required(VERSION 2.8.12)
+
+set(target sfp)
+project(${target})
+
+if(TARGET ${target})
+  # FIXME make sure that the current target's version or configuration matches?
+  # this feels rather dangerous. find_package would solve this conundrum :/
+  message(FATAL_ERROR "sfp already configured")
+endif()
+
+option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
+option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 
 set(VERSION_MAJOR 0)
-set(VERSION_MINOR 1)
-set(VERSION_PATCH 2)
+set(VERSION_MINOR 2)
+set(VERSION_PATCH 0)
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
-##############################################################################
-# Headers
+# libsfp has a library target, and optional tests
 
-set(PUBLIC_INCLUDE_DIR include)
-include_directories(${PUBLIC_INCLUDE_DIR})
+set(sources src/serial_framing_protocol.cpp )
 
-##############################################################################
-# Targets
+add_library(${target} ${sources})
+target_compile_options(${target} PRIVATE "-std=c++11")
 
-set(TARGET sfp)
+if(SFP_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
-# Sources need to be listed manually so CMake knows to regenerate the
-# build system when the list of sources changes.
-set(SOURCES src/serial_framing_protocol.c src/net_byte_order.c)
+# target properties
 
-# By default, we'll build a shared library, but the robot firmware needs to be
-# able to build a static library to link with. Providing a separate
-# ${TARGET}-static target isn't that useful, because the firmware uses an
-# entirely separate toolchain, so it will have a separate build directory.
-option(BUILD_SHARED_LIBS "build shared libraries" ON)
-add_library(${TARGET} ${SOURCES})
-
-set_target_properties(${TARGET} PROPERTIES
+set_target_properties(${target} PROPERTIES
   VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
-  SOVERSION ${VERSION_MAJOR})
+  SOVERSION ${VERSION_MAJOR}
+  MACOSX_RPATH ON
+)
 
-##############################################################################
-# Installation
+configure_file(config.h.in include/sfp/config.h)
+target_include_directories(${target}
+    PUBLIC include
+           ${PROJECT_BINARY_DIR}/include
+           $<TARGET_PROPERTY:cxx-util,INTERFACE_INCLUDE_DIRECTORIES>
+)
 
-if(UNIX)
-  set(INSTALL_LIB_DIR lib)
-  set(INSTALL_BIN_DIR bin)
+# Staging
+
+if(WIN32)
+  set(dest .)
+elseif(APPLE)
+  set(dest ../MacOS)
 else()
-  set(INSTALL_LIB_DIR .)
-  set(INSTALL_BIN_DIR .)
+  set(dest lib)
 endif()
 
-install(TARGETS ${TARGET}
-  ARCHIVE DESTINATION ${INSTALL_LIB_DIR}
-  LIBRARY DESTINATION ${INSTALL_LIB_DIR}
-  RUNTIME DESTINATION ${INSTALL_BIN_DIR})
-
-# TODO figure out what to do with the headers on install?
-#install(DIRECTORY ${PUBLIC_INCLUDE_DIR} DESTINATION .)
-
-##############################################################################
-# Configuration for dependent projects
-
-get_filename_component(${PROJECT_NAME}_INCLUDE_DIRS ${PUBLIC_INCLUDE_DIR} ABSOLUTE CACHE)
-set(${PROJECT_NAME}_LIBRARIES ${TARGET} CACHE INTERNAL "")
-set(${PROJECT_NAME}_VERSION ${VERSION} CACHE INTERNAL "")
-
-##############################################################################
-# Fix install-name for Mac libraries
-if(CMAKE_HOST_APPLE)
-  set_target_properties(sfp PROPERTIES INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/lib")
-endif()
+install(TARGETS ${target} DESTINATION ${dest})

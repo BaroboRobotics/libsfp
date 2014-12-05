@@ -3,8 +3,6 @@
 
 /* A fixed-size ring buffer optimized for power-of-two buffer sizes. */
 
-#include "static_assert.h"
-
 #include <assert.h>
 
 #define RINGBUF(TYPE, CAPACITY) \
