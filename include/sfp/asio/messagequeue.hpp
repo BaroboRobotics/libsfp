@@ -389,9 +389,20 @@ public:
     explicit MessageQueueService (boost::asio::io_service& ios)
         : boost::asio::io_service::service(ios)
         , mAsyncWork(boost::in_place(std::ref(mAsyncIoService)))
-        , mAsyncThread(static_cast<
-			size_t(boost::asio::io_service::*)()
-			>(&boost::asio::io_service::run), &mAsyncIoService)
+        , mAsyncThread([this] () mutable {
+            boost::log::sources::logger log;
+            try {
+	            boost::system::error_code ec;
+	            auto nHandlers = mAsyncIoService.run(ec);
+	            BOOST_LOG(log) << "SFP MessageQueueService: " << nHandlers << " completed with " << ec.message();
+            }
+            catch (std::exception& e) {
+            	BOOST_LOG(log) << "SFP MessageQueueService died with " << e.what();
+            }
+            catch (...) {
+            	BOOST_LOG(log) << "SFP MessageQueueService died by unknown cause";
+            }
+        })
     {}
 
     ~MessageQueueService () {
