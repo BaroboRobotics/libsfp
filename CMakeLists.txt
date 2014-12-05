@@ -16,8 +16,8 @@ option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
 option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 
 set(VERSION_MAJOR 0)
-set(VERSION_MINOR 1)
-set(VERSION_PATCH 2)
+set(VERSION_MINOR 2)
+set(VERSION_PATCH 0)
 set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 # libsfp has a library target, and optional tests
