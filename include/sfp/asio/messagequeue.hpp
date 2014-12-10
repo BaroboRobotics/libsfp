@@ -55,8 +55,16 @@ public:
 	}
 
 	void close (boost::system::error_code ec) {
-        mSfpTimer.cancel(ec);
-		mStream.close(ec);
+		auto self = this->shared_from_this();
+		mStrand.post([self, this] () {
+			boost::system::error_code ec;
+			mSfpTimer.cancel(ec);
+			mStream.close(ec);
+		});
+		// FIXME, can't report an error, because we need to worry about thread
+		// safety. Could fix this by using a mutex to protect the timer and
+		// stream objects. :/
+		ec = boost::system::error_code();
 	}
 
 #ifdef SFP_CONFIG_DEBUG
@@ -121,39 +129,54 @@ private:
 	};
 
 	void asyncHandshakeImpl (boost::asio::io_service::work work, HandshakeHandler handler) {
-		postReceives();
-		voidReceives(boost::asio::error::operation_aborted);
-		mInbox = decltype(mInbox)();
+		if (mStream.is_open()) {
+			postReceives();
+			voidReceives(boost::asio::error::operation_aborted);
+			mInbox = decltype(mInbox)();
 
-		mWriteBuffer.clear();
+			mWriteBuffer.clear();
 
-		sfpInit(&mContext);
-		sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
-			(void*)writeCallback, this);
-		sfpSetDeliverCallback(&mContext, deliverCallback, this);
+			sfpInit(&mContext);
+			sfpSetWriteCallback(&mContext, SFP_WRITE_MULTIPLE,
+				(void*)writeCallback, this);
+			sfpSetDeliverCallback(&mContext, deliverCallback, this);
 
-		startReadPump();
-		doHandshake(work, handler);
+			startReadPump();
+			doHandshake(work, handler);
+		}
+		else {
+			work.get_io_service().post(std::bind(handler, boost::asio::error::broken_pipe));
+		}
 	}
 
 	void asyncSendImpl (boost::asio::io_service::work work,
 						boost::asio::const_buffer buffer,
 						SendHandler handler) {
-		size_t outlen;
-		sfpWritePacket(&mContext,
-			boost::asio::buffer_cast<const uint8_t*>(buffer),
-			boost::asio::buffer_size(buffer), &outlen);
-		flushWriteBuffer(work, [handler] (boost::system::error_code ec) { handler(ec); });
+		if (mStream.is_open()) {
+			size_t outlen;
+			sfpWritePacket(&mContext,
+				boost::asio::buffer_cast<const uint8_t*>(buffer),
+				boost::asio::buffer_size(buffer), &outlen);
+			flushWriteBuffer(work, [handler] (boost::system::error_code ec) { handler(ec); });
+		}
+		else {
+			work.get_io_service().post(std::bind(handler, boost::asio::error::broken_pipe));
+		}
 	}
 
 	void asyncReceiveImpl (boost::asio::io_service::work work,
 						   boost::asio::mutable_buffer buffer,
 						   ReceiveHandler handler) {
-		{
-			std::lock_guard<std::mutex> lock { mReceivesMutex };
-			mReceives.emplace(ReceiveData{work, buffer, handler});
+		if (mStream.is_open()) {
+			{
+				std::lock_guard<std::mutex> lock { mReceivesMutex };
+				mReceives.emplace(ReceiveData{work, buffer, handler});
+			}
+			postReceives();
 		}
-		postReceives();
+		else {
+			work.get_io_service().post(std::bind(handler, boost::asio::error::broken_pipe, 0));
+		}
 	}
 
 	void doHandshake (boost::asio::io_service::work work, HandshakeHandler handler) {
