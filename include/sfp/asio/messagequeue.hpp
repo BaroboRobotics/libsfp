@@ -269,6 +269,7 @@ private:
 		}
 		else {
 			BOOST_LOG(mLog) << "read pump failed, stream not open";
+			boost::system::error_code ec;
 			voidReceives(ec);
 			mReadPumpRunning = false;
 		}
@@ -318,6 +319,7 @@ private:
 			}
 			else {
 				BOOST_LOG(mLog) << "write pump failed, stream not open";
+				boost::system::error_code ec;
 				voidOutbox(ec);
 			}
 		}
