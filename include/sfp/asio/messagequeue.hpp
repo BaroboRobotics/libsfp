@@ -278,9 +278,7 @@ private:
 			}
 			auto self = this->shared_from_this();
 			boost::asio::io_service::work localWork { mStream.get_io_service() };
-			flushWriteBuffer(localWork, [self, this] (sys::error_code ec) {
-				BOOST_LOG(mLog) << "write buffer flushed from read coroutine with " << ec.message();
-			});
+			flushWriteBuffer(localWork, [self, this] (sys::error_code) {});
 			postReceives();
 			readPump(buf);
 		}
@@ -380,6 +378,7 @@ private:
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;
+	// FIXME we should be able to take this mutex out now...
 	std::mutex mReceivesMutex;
 
 	std::vector<uint8_t> mWriteBuffer;
