@@ -262,9 +262,16 @@ private:
 	}
 
 	void readPump (std::shared_ptr<std::vector<uint8_t>> buf) {
-		mStream.async_read_some(boost::asio::buffer(*buf), mStrand.wrap(
-			std::bind(&MessageQueueImpl::handleRead,
-				this->shared_from_this(), buf, _1, _2)));
+		if (mStream.is_open()) {
+			mStream.async_read_some(boost::asio::buffer(*buf), mStrand.wrap(
+				std::bind(&MessageQueueImpl::handleRead,
+					this->shared_from_this(), buf, _1, _2)));
+		}
+		else {
+			BOOST_LOG(mLog) << "read pump failed, stream not open";
+			voidReceives(ec);
+			mReadPumpRunning = false;
+		}
 	}
 
 	void handleRead (std::shared_ptr<std::vector<uint8_t>> buf,
@@ -304,9 +311,15 @@ private:
 
 	void writePump () {
 		if (mOutbox.size()) {
-			boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().buffer), mStrand.wrap(
-				std::bind(&MessageQueueImpl::handleWrite,
-					this->shared_from_this(), _1, _2)));
+			if (mStream.is_open()) {
+				boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().buffer), mStrand.wrap(
+					std::bind(&MessageQueueImpl::handleWrite,
+						this->shared_from_this(), _1, _2)));
+			}
+			else {
+				BOOST_LOG(mLog) << "write pump failed, stream not open";
+				voidOutbox(ec);
+			}
 		}
 	}
 
