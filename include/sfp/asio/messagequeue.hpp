@@ -438,7 +438,7 @@ public:
 
     ~MessageQueueService () {
         mAsyncWork = boost::none;
-        mAsyncIoService.stop();
+        //mAsyncIoService.stop();
         mAsyncThread.join();
     }
 
