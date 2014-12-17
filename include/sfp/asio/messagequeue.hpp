@@ -44,6 +44,13 @@ public:
 		, mStrand(mStream.get_io_service())
 	{}
 
+	~MessageQueueImpl () {
+		BOOST_LOG(mLog) << "~MessageQueueImpl: (inbox: " << mInbox.size()
+						<< "), (outbox: " << mOutbox.size()
+						<< "), (receives: " << mReceives.size()
+						<< ")";
+	}
+
 	void init (boost::log::sources::logger log) {
 		mLog = log;
 	    mLog.add_attribute("Protocol", boost::log::attributes::constant<std::string>("SFP"));
