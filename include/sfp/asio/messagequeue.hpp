@@ -175,10 +175,7 @@ private:
 						   boost::asio::mutable_buffer buffer,
 						   ReceiveHandler handler) {
 		if (mStream.is_open()) {
-			{
-				std::lock_guard<std::mutex> lock { mReceivesMutex };
-				mReceives.emplace(ReceiveData{work, buffer, handler});
-			}
+			mReceives.emplace(ReceiveData{work, buffer, handler});
 			postReceives();
 		}
 		else {
@@ -347,7 +344,6 @@ private:
 	}
 
 	void postReceives () {
-		std::lock_guard<std::mutex> lock { mReceivesMutex };
 		while (mInbox.size() && mReceives.size()) {
 			auto& receive = mReceives.front();
 			auto nCopied = boost::asio::buffer_copy(receive.buffer,
@@ -365,7 +361,6 @@ private:
 	}
 
 	void voidReceives (boost::system::error_code ec) {
-		std::lock_guard<std::mutex> lock { mReceivesMutex };
 		while (mReceives.size()) {
 			auto& receive = mReceives.front();
 			auto& ios = receive.work.get_io_service();
@@ -400,8 +395,6 @@ private:
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;
-	// FIXME we should be able to take this mutex out now...
-	std::mutex mReceivesMutex;
 
 	std::vector<uint8_t> mWriteBuffer;
 	std::queue<SendData> mOutbox;
