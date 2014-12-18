@@ -130,7 +130,7 @@ public:
 
 	void close (boost::system::error_code ec) {
 		auto self = this->shared_from_this();
-		mStrand.post([self, this] () {
+		mStrand.post([self, this] () mutable {
 			boost::system::error_code ec;
 			mSfpTimer.cancel(ec);
 			stream().close(ec);
