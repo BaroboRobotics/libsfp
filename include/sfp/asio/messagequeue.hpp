@@ -29,6 +29,73 @@ namespace sys = boost::system;
 
 using namespace std::placeholders;
 
+namespace detail {
+
+// Not all stream objects provide compatible APIs. Stream sockets, for
+// for instance, require that .shutdown() is called before .close() in order
+// to gracefully close the stream, while serial_port has no shutdown function.
+// The StreamWrapper class template abstracts these inconsistencies so
+// MessageQueueImpl doesn't have to worry about them.
+template <class S>
+class StreamWrapper {
+public:
+	using Stream = S;
+
+	StreamWrapper (boost::asio::io_service& ios)
+		: mStream(ios)
+	{}
+
+	Stream& stream () { return mStream; }
+	const Stream& stream () const { return mStream; }
+
+	void close (boost::system::error_code& ec) {
+		boost::log::sources::logger log;
+		BOOST_LOG(log) << "Closing a generic Stream";
+		mStream.close(ec);
+		if (ec) {
+			BOOST_LOG(log) << "Stream.close() resulted in " << ec.message();
+		}
+	}
+
+private:
+	Stream mStream;
+};
+
+template <class Protocol, class Service>
+class StreamWrapper<boost::asio::basic_stream_socket<Protocol, Service>> {
+public:
+	using Stream = boost::asio::basic_stream_socket<Protocol, Service>;
+
+	StreamWrapper (boost::asio::io_service& ios)
+		: mStream(ios)
+	{}
+
+	Stream& stream () { return mStream; }
+	const Stream& stream () const { return mStream; }
+
+	void close (boost::system::error_code& ec) {
+		boost::log::sources::logger log;
+		BOOST_LOG(log) << "Closing a basic_stream_socket";
+		boost::system::error_code lEc;
+		ec = lEc;
+		mStream.shutdown(boost::asio::socket_base::shutdown_both, lEc);
+		if (lEc) {
+			ec = lEc;
+			BOOST_LOG(log) << "basic_stream_socket.shutdown() resulted in " << ec.message();
+		}
+		mStream.close(lEc);
+		if (lEc) {
+			ec = lEc;
+			BOOST_LOG(log) << "basic_stream_socket.close() resulted in " << ec.message();
+		}
+	}
+
+private:
+	Stream mStream;
+};
+
+} // namespace detail
+
 template <class S>
 class MessageQueueImpl : public std::enable_shared_from_this<MessageQueueImpl<S>> {
 public:
@@ -39,9 +106,9 @@ public:
 	using SendHandler = std::function<void(sys::error_code)>;
 
 	explicit MessageQueueImpl (boost::asio::io_service& ios)
-		: mStream(ios)
-		, mSfpTimer(mStream.get_io_service())
-		, mStrand(mStream.get_io_service())
+		: mStreamWrapper(ios)
+		, mSfpTimer(ios)
+		, mStrand(ios)
 	{}
 
 	~MessageQueueImpl () {
@@ -66,7 +133,7 @@ public:
 		mStrand.post([self, this] () {
 			boost::system::error_code ec;
 			mSfpTimer.cancel(ec);
-			mStream.close(ec);
+			stream().close(ec);
 		});
 		// FIXME, can't report an error, because we need to worry about thread
 		// safety. Could fix this by using a mutex to protect the timer and
@@ -80,8 +147,8 @@ public:
 	}
 #endif
 
-	Stream& stream () { return mStream; }
-	const Stream& stream () const { return mStream; }
+	Stream& stream () { return mStreamWrapper.stream(); }
+	const Stream& stream () const { return mStreamWrapper.stream(); }
 
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
@@ -136,7 +203,7 @@ private:
 	};
 
 	void asyncHandshakeImpl (boost::asio::io_service::work work, HandshakeHandler handler) {
-		if (mStream.is_open()) {
+		if (stream().is_open()) {
 			postReceives();
 			voidReceives(boost::asio::error::operation_aborted);
 			mInbox = decltype(mInbox)();
@@ -159,7 +226,7 @@ private:
 	void asyncSendImpl (boost::asio::io_service::work work,
 						boost::asio::const_buffer buffer,
 						SendHandler handler) {
-		if (mStream.is_open()) {
+		if (stream().is_open()) {
 			size_t outlen;
 			sfpWritePacket(&mContext,
 				boost::asio::buffer_cast<const uint8_t*>(buffer),
@@ -174,7 +241,7 @@ private:
 	void asyncReceiveImpl (boost::asio::io_service::work work,
 						   boost::asio::mutable_buffer buffer,
 						   ReceiveHandler handler) {
-		if (mStream.is_open()) {
+		if (stream().is_open()) {
 			mReceives.emplace(ReceiveData{work, buffer, handler});
 			postReceives();
 		}
@@ -184,7 +251,7 @@ private:
 	}
 
 	void doHandshake (boost::asio::io_service::work work, HandshakeHandler handler) {
-		boost::asio::io_service::work localWork { mStream.get_io_service() };
+		boost::asio::io_service::work localWork { stream().get_io_service() };
 		sfpConnect(&mContext);
 		flushWriteBuffer(localWork, mStrand.wrap(
 			std::bind(&MessageQueueImpl::handshakeStepOne,
@@ -209,6 +276,10 @@ private:
 			}
 		}
 		else {
+			if (ec != boost::asio::error::operation_aborted) {
+				boost::system::error_code ignoredEc;
+				close(ignoredEc);
+			}
 			BOOST_LOG(mLog) << "Handshake step one failed: " << ec.message();
 			auto& ios = work.get_io_service();
 			ios.post(std::bind(handler, ec));
@@ -230,6 +301,10 @@ private:
 			}
 		}
 		else {
+			if (ec != boost::asio::error::operation_aborted) {
+				boost::system::error_code ignoredEc;
+				close(ignoredEc);
+			}
 			BOOST_LOG(mLog) << "Handshake step two failed: " << ec.message();
 			auto& ios = work.get_io_service();
 			ios.post(std::bind(handler, ec));
@@ -250,6 +325,10 @@ private:
 			}
 		}
 		else {
+			if (ec != boost::asio::error::operation_aborted) {
+				boost::system::error_code ignoredEc;
+				close(ignoredEc);
+			}
 			BOOST_LOG(mLog) << "Handshake finish failed: " << ec.message();
 			auto& ios = work.get_io_service();
 			ios.post(std::bind(handler, ec));
@@ -266,8 +345,8 @@ private:
 	}
 
 	void readPump (std::shared_ptr<std::vector<uint8_t>> buf) {
-		if (mStream.is_open()) {
-			mStream.async_read_some(boost::asio::buffer(*buf), mStrand.wrap(
+		if (stream().is_open()) {
+			stream().async_read_some(boost::asio::buffer(*buf), mStrand.wrap(
 				std::bind(&MessageQueueImpl::handleRead,
 					this->shared_from_this(), buf, _1, _2)));
 		}
@@ -289,12 +368,16 @@ private:
 				assert(-1 != rc);
 			}
 			auto self = this->shared_from_this();
-			boost::asio::io_service::work localWork { mStream.get_io_service() };
+			boost::asio::io_service::work localWork { stream().get_io_service() };
 			flushWriteBuffer(localWork, [self, this] (sys::error_code) {});
 			postReceives();
 			readPump(buf);
 		}
 		else {
+			if (ec != boost::asio::error::operation_aborted) {
+				boost::system::error_code ignoredEc;
+				close(ignoredEc);
+			}
 			BOOST_LOG(mLog) << "read pump: " << ec.message();
 			voidReceives(ec);
 			mReadPumpRunning = false;
@@ -316,8 +399,8 @@ private:
 
 	void writePump () {
 		if (mOutbox.size()) {
-			if (mStream.is_open()) {
-				boost::asio::async_write(mStream, boost::asio::buffer(mOutbox.front().buffer), mStrand.wrap(
+			if (stream().is_open()) {
+				boost::asio::async_write(stream(), boost::asio::buffer(mOutbox.front().buffer), mStrand.wrap(
 					std::bind(&MessageQueueImpl::handleWrite,
 						this->shared_from_this(), _1, _2)));
 			}
@@ -338,6 +421,10 @@ private:
 			writePump();
 		}
 		else {
+			if (ec != boost::asio::error::operation_aborted) {
+				boost::system::error_code ignoredEc;
+				close(ignoredEc);
+			}
 			BOOST_LOG(mLog) << "write pump: " << ec.message();
 			voidOutbox(ec);
 		}
@@ -401,7 +488,7 @@ private:
 
 	bool mReadPumpRunning = false;
 
-	Stream mStream;
+	detail::StreamWrapper<Stream> mStreamWrapper;
 	boost::asio::steady_timer mSfpTimer;
 	boost::asio::io_service::strand mStrand;
 
@@ -469,7 +556,7 @@ public:
         return impl->log();
     }
 
-    #ifdef SFP_CONFIG_DEBUG
+#ifdef SFP_CONFIG_DEBUG
 	void setDebugName (implementation_type& impl, std::string debugName) {
 		impl->setDebugName(debugName);
 	}
