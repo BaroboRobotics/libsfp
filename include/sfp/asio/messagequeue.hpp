@@ -696,7 +696,10 @@ struct KeepaliveOperation : std::enable_shared_from_this<KeepaliveOperation<MQ, 
 					this->shared_from_this(), handler, _1)));
 		}
 		else {
-			// realistically, never reached?
+			// FIXME this will never be reached unless we implement some way of
+			// cancelling mTimer. This also means that any process which uses a
+			// keepalive may pause for a duration of up to mTimeout on process
+			// exit.
 			mIos.post(std::bind(handler, ec));
 		}
 	}
