@@ -219,7 +219,7 @@ private:
 			doHandshake(work, handler);
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::broken_pipe));
+			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
 		}
 	}
 
@@ -234,7 +234,7 @@ private:
 			flushWriteBuffer(work, [handler] (boost::system::error_code ec) { handler(ec); });
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::broken_pipe));
+			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
 		}
 	}
 
@@ -246,7 +246,7 @@ private:
 			postReceives();
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::broken_pipe, 0));
+			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down, 0));
 		}
 	}
 
