@@ -3,16 +3,19 @@
 
 #include "sfp/serial_framing_protocol.h"
 
-#include <boost/asio.hpp>
-#include <boost/asio/steady_timer.hpp>
-
 #include <boost/asio/async_result.hpp>
+#include <boost/asio/basic_stream_socket.hpp>
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/asio/write.hpp>
 
 #include <boost/optional.hpp>
 
-#include <boost/log/common.hpp>
+#include <boost/log/attributes/constant.hpp>
 #include <boost/log/sources/logger.hpp>
-#include <boost/log/utility/manipulators/dump.hpp>
+#include <boost/log/sources/record_ostream.hpp>
 
 #include <chrono>
 #include <memory>
