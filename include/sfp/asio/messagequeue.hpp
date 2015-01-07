@@ -99,14 +99,22 @@ private:
 
 } // namespace detail
 
+using HandshakeHandlerSignature = void(sys::error_code);
+using HandshakeHandler = std::function<HandshakeHandlerSignature>;
+
+using KeepaliveHandlerSignature = void(sys::error_code);
+using KeepaliveHandler = std::function<KeepaliveHandlerSignature>;
+
+using ReceiveHandlerSignature = void(sys::error_code, size_t);
+using ReceiveHandler = std::function<ReceiveHandlerSignature>;
+
+using SendHandlerSignature = void(sys::error_code);
+using SendHandler = std::function<SendHandlerSignature>;
+
 template <class S>
 class MessageQueueImpl : public std::enable_shared_from_this<MessageQueueImpl<S>> {
 public:
 	using Stream = S;
-
-	using HandshakeHandler = std::function<void(sys::error_code)>;
-	using ReceiveHandler = std::function<void(sys::error_code, size_t)>;
-	using SendHandler = std::function<void(sys::error_code)>;
 
 	explicit MessageQueueImpl (boost::asio::io_service& ios)
 		: mStreamWrapper(ios)
@@ -154,10 +162,10 @@ public:
 	const Stream& stream () const { return mStreamWrapper.stream(); }
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, HandshakeHandlerSignature)
 	asyncHandshake (boost::asio::io_service::work work, Handler&& handler) {
 		boost::asio::detail::async_result_init<
-			Handler, void(boost::system::error_code)
+			Handler, HandshakeHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
 		mStrand.post(std::bind(&MessageQueueImpl::asyncHandshakeImpl,
@@ -167,10 +175,23 @@ public:
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, KeepaliveHandlerSignature)
+	asyncKeepalive (boost::asio::io_service::work work, Handler&& handler) {
+	    boost::asio::detail::async_result_init<
+	        Handler, KeepaliveHandlerSignature
+	    > init { std::forward<Handler>(handler) };
+
+	    mStrand.post(std::bind(&MessageQueueImpl::asyncKeepaliveImpl,
+            this->shared_from_this(), work, init.handler));
+
+	    return init.result.get();
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, SendHandlerSignature)
 	asyncSend (boost::asio::io_service::work work, boost::asio::const_buffer buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
-			Handler, void(boost::system::error_code)
+			Handler, SendHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
 		mStrand.post(std::bind(&MessageQueueImpl::asyncSendImpl,
@@ -180,10 +201,10 @@ public:
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, ReceiveHandlerSignature)
 	asyncReceive (boost::asio::io_service::work work, boost::asio::mutable_buffer buffer, Handler&& handler) {
 		boost::asio::detail::async_result_init<
-			Handler, void(boost::system::error_code, size_t)
+			Handler, ReceiveHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
 		mStrand.post(std::bind(&MessageQueueImpl::asyncReceiveImpl,
@@ -220,6 +241,15 @@ private:
 
 			startReadPump();
 			doHandshake(work, handler);
+		}
+		else {
+			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
+		}
+	}
+
+	void asyncKeepaliveImpl (boost::asio::io_service::work work, KeepaliveHandler handler) {
+		if (stream().is_open()) {
+			doKeepalive(work, handler);
 		}
 		else {
 			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
@@ -337,6 +367,40 @@ private:
 			ios.post(std::bind(handler, ec));
 		}
 	}
+
+	void doKeepalive (boost::asio::io_service::work work,
+					  KeepaliveHandler handler) {
+		mSfpTimer.expires_from_now(kSfpKeepaliveTimeout);
+		mSfpTimer.async_wait(mStrand.wrap(
+			std::bind(&MessageQueueImpl::keepaliveStepOne,
+				this->shared_from_this(), work, handler, _1)));
+	}
+
+	void keepaliveStepOne (boost::asio::io_service::work work,
+						   KeepaliveHandler handler,
+						   boost::system::error_code ec) {
+		if (!ec) {
+			asyncSend(work, boost::asio::const_buffer(), mStrand.wrap(
+				std::bind(&MessageQueueImpl::keepaliveStepTwo,
+					this->shared_from_this(), work, handler, _1)));
+		}
+		else {
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, ec));
+		}
+	}
+
+	void keepaliveStepTwo (boost::asio::io_service::work work,
+						   KeepaliveHandler handler,
+						   boost::system::error_code ec) {
+		if (!ec) {
+			doKeepalive(work, handler);
+		}
+		else {
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, ec));
+		}
+    }
 
 	void startReadPump () {
 		if (mReadPumpRunning) {
@@ -482,6 +546,8 @@ private:
 
 	std::chrono::milliseconds kSfpConnectTimeout { 100 } ;
 	std::chrono::milliseconds kSfpSettleTimeout { 200 } ;
+	std::chrono::milliseconds kSfpKeepaliveTimeout { 500 };
+
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;
@@ -574,21 +640,29 @@ public:
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, HandshakeHandlerSignature)
 	asyncHandshake (implementation_type& impl, Handler&& handler) {
         boost::asio::io_service::work work { this->get_io_service() };
         return impl->asyncHandshake(work, std::forward<Handler>(handler));
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, KeepaliveHandlerSignature)
+	asyncKeepalive (implementation_type& impl, Handler&& handler) {
+		boost::asio::io_service::work work { this->get_io_service() };
+		return impl->asyncKeepalive(work, std::forward<Handler>(handler));
+	}
+
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, SendHandlerSignature)
 	asyncSend (implementation_type& impl, boost::asio::const_buffer buffer, Handler&& handler) {
         boost::asio::io_service::work work { this->get_io_service() };
         return impl->asyncSend(work, buffer, std::forward<Handler>(handler));
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, ReceiveHandlerSignature)
 	asyncReceive (implementation_type& impl, boost::asio::mutable_buffer buffer, Handler&& handler) {
         boost::asio::io_service::work work { this->get_io_service() };
         return impl->asyncReceive(work, buffer, std::forward<Handler>(handler));
@@ -651,21 +725,32 @@ public:
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, HandshakeHandlerSignature)
 	asyncHandshake (Handler&& handler) {
 		return this->get_service().asyncHandshake(this->get_implementation(),
 			std::forward<Handler>(handler));
 	}
 
+	// Ping the remote end of the message queue every given timeout interval with
+	// zero-length messages, to make sure our device is still working. If such a
+	// zero-length message fails to send, forward the error code produced to the
+	// user's handler.
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, KeepaliveHandlerSignature)
+	asyncKeepalive (Handler&& handler) {
+		return this->get_service().asyncKeepalive(this->get_implementation(),
+			std::forward<Handler>(handler));
+	}
+
+	template <class Handler>
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, SendHandlerSignature)
 	asyncSend (boost::asio::const_buffer buffer, Handler&& handler) {
 		return this->get_service().asyncSend(this->get_implementation(),
 			buffer, std::forward<Handler>(handler));
 	}
 
 	template <class Handler>
-	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code, size_t))
+	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, ReceiveHandlerSignature)
 	asyncReceive (boost::asio::mutable_buffer buffer, Handler&& handler) {
 		return this->get_service().asyncReceive(this->get_implementation(),
 			buffer, std::forward<Handler>(handler));
@@ -674,72 +759,6 @@ public:
 
 template <class Stream>
 using MessageQueue = BasicMessageQueue<MessageQueueService<MessageQueueImpl<Stream>>>;
-
-template <class MQ, class Duration, class Handler>
-struct KeepaliveOperation : std::enable_shared_from_this<KeepaliveOperation<MQ, Duration, Handler>> {
-    KeepaliveOperation (MQ& messageQueue, Duration timeout)
-        : mIos(messageQueue.get_io_service())
-        , mStrand(mIos)
-        , mTimer(mIos)
-        , mMessageQueue(messageQueue)
-        , mTimeout(timeout)
-    {}
-
-    void start (Handler handler) {
-		mTimer.expires_from_now(mTimeout);
-		mTimer.async_wait(mStrand.wrap(
-			std::bind(&KeepaliveOperation::stepOne,
-				this->shared_from_this(), handler, _1)));
-	}
-
-	void stepOne (Handler handler, boost::system::error_code ec) {
-		if (!ec) {
-			mMessageQueue.asyncSend(boost::asio::const_buffer(), mStrand.wrap(
-				std::bind(&KeepaliveOperation::stepTwo,
-					this->shared_from_this(), handler, _1)));
-		}
-		else {
-			// FIXME this will never be reached unless we implement some way of
-			// cancelling mTimer. This also means that any process which uses a
-			// keepalive may pause for a duration of up to mTimeout on process
-			// exit.
-			mIos.post(std::bind(handler, ec));
-		}
-	}
-
-	void stepTwo (Handler handler, boost::system::error_code ec) {
-		if (!ec) {
-			start(handler);
-		}
-		else {
-			mIos.post(std::bind(handler, ec));
-		}
-    }
-
-    boost::asio::io_service& mIos;
-    boost::asio::io_service::strand mStrand;
-    boost::asio::steady_timer mTimer;
-    MQ& mMessageQueue;
-    const Duration mTimeout;
-};
-
-// Ping the remote end of the message queue every given timeout interval with
-// zero-length messages, to make sure our device is still working. If such a
-// zero-length message fails to send, forward the error code produced to the
-// user's handler.
-template <class MQ, class Duration, class Handler>
-BOOST_ASIO_INITFN_RESULT_TYPE(Handler, void(boost::system::error_code))
-asyncKeepalive (MQ& messageQueue, Duration timeout, Handler&& handler) {
-    boost::asio::detail::async_result_init<
-        Handler, void(boost::system::error_code)
-    > init { std::forward<Handler>(handler) };
-
-    using Op = KeepaliveOperation<MQ, Duration, decltype(init.handler)>;
-    std::make_shared<Op>(messageQueue, timeout)->start(init.handler);
-
-    return init.result.get();
-}
-
 
 } // namespace asio
 } // namespace sfp
