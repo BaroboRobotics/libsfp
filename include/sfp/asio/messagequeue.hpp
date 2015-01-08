@@ -357,10 +357,10 @@ private:
 						   boost::system::error_code ec) {
 		if (!ec) {
 			if (sfpIsConnected(&mContext)) {
+				mHandshakeComplete = true;
 				auto& ios = work.get_io_service();
 				ios.post(std::bind(handler, ec));
 				BOOST_LOG(mLog) << "handshake complete";
-				mHandshakeComplete = true;
 			}
 			else {
 				doHandshake(work, handler);
