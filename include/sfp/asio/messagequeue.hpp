@@ -181,6 +181,8 @@ public:
 	        Handler, KeepaliveHandlerSignature
 	    > init { std::forward<Handler>(handler) };
 
+	    assert(mHandshakeComplete && "asyncHandshake must succeed before calling asyncKeepalive");
+
 	    mStrand.post(std::bind(&MessageQueueImpl::asyncKeepaliveImpl,
             this->shared_from_this(), work, init.handler));
 
@@ -194,6 +196,8 @@ public:
 			Handler, SendHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
+	    assert(mHandshakeComplete && "asyncHandshake must succeed before calling asyncSend");
+
 		mStrand.post(std::bind(&MessageQueueImpl::asyncSendImpl,
 			this->shared_from_this(), work, buffer, init.handler));
 
@@ -206,6 +210,8 @@ public:
 		boost::asio::detail::async_result_init<
 			Handler, ReceiveHandlerSignature
 		> init { std::forward<Handler>(handler) };
+
+	    assert(mHandshakeComplete && "asyncHandshake must succeed before calling asyncReceive");
 
 		mStrand.post(std::bind(&MessageQueueImpl::asyncReceiveImpl,
 			this->shared_from_this(), work, buffer, init.handler));
@@ -228,6 +234,8 @@ private:
 
 	void asyncHandshakeImpl (boost::asio::io_service::work work, HandshakeHandler handler) {
 		if (stream().is_open()) {
+			mHandshakeComplete = false;
+
 			postReceives();
 			voidReceives(boost::asio::error::operation_aborted);
 			mInbox = decltype(mInbox)();
@@ -352,6 +360,7 @@ private:
 				auto& ios = work.get_io_service();
 				ios.post(std::bind(handler, ec));
 				BOOST_LOG(mLog) << "handshake complete";
+				mHandshakeComplete = true;
 			}
 			else {
 				doHandshake(work, handler);
@@ -562,6 +571,7 @@ private:
 	boost::asio::io_service::strand mStrand;
 
 	SFPcontext mContext;
+	bool mHandshakeComplete = false;
 
 	mutable boost::log::sources::logger mLog;
 };
