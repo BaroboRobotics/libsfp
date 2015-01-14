@@ -428,8 +428,7 @@ private:
 		}
 		else {
 			BOOST_LOG(mLog) << "read pump failed, stream not open";
-			boost::system::error_code ec;
-			voidReceives(ec);
+			voidReceives(boost::asio::error::network_down);
 			mReadPumpRunning = false;
 		}
 	}
@@ -437,19 +436,8 @@ private:
 	void handleRead (std::shared_ptr<std::vector<uint8_t>> buf,
 					 boost::system::error_code ec,
 					 size_t nRead) {
-		if (!ec) {
-			for (size_t i = 0; i < nRead; ++i) {
-				auto rc = sfpDeliverOctet(&mContext, (*buf)[i], nullptr, 0, nullptr);
-				(void)rc;
-				assert(-1 != rc);
-			}
-			auto self = this->shared_from_this();
-			boost::asio::io_service::work localWork { stream().get_io_service() };
-			flushWriteBuffer(localWork, [self, this] (sys::error_code) {});
-			postReceives();
-			readPump(buf);
-		}
-		else {
+		auto self = this->shared_from_this();
+		auto stopReadPump = [self, this] (sys::error_code ec) {
 			if (ec != boost::asio::error::operation_aborted) {
 				boost::system::error_code ignoredEc;
 				close(ignoredEc);
@@ -457,6 +445,27 @@ private:
 			BOOST_LOG(mLog) << "read pump: " << ec.message();
 			voidReceives(ec);
 			mReadPumpRunning = false;
+		};
+
+		if (!ec) {
+			for (size_t i = 0; i < nRead; ++i) {
+				auto rc = sfpDeliverOctet(&mContext, (*buf)[i], nullptr, 0, nullptr);
+				(void)rc;
+				assert(-1 != rc);
+			}
+			boost::asio::io_service::work localWork { stream().get_io_service() };
+			flushWriteBuffer(localWork, mStrand.wrap([stopReadPump, buf] (sys::error_code ec) {
+				if (!ec) {
+					postReceives();
+					readPump(buf);
+				}
+				else {
+					stopReadPump(ec);
+				}
+			}));
+		}
+		else {
+			stopReadPump(ec);
 		}
 	}
 
