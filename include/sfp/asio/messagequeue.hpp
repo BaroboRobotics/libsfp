@@ -232,8 +232,18 @@ private:
 		ReceiveHandler handler;
 	};
 
+	boost::system::error_code getStreamError () {
+		auto ec = mReadPumpError;
+		mReadPumpError = boost::system::error_code();
+		if (!ec && !stream().is_open()) {
+			ec = boost::asio::error::network_down;
+		}
+		return ec;
+	}
+
 	void asyncHandshakeImpl (boost::asio::io_service::work work, HandshakeHandler handler) {
-		if (stream().is_open()) {
+		auto ec = getStreamError();
+		if (!ec) {
 			mHandshakeComplete = false;
 
 			postReceives();
@@ -251,23 +261,25 @@ private:
 			doHandshake(work, handler);
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
+			work.get_io_service().post(std::bind(handler, ec));
 		}
 	}
 
 	void asyncKeepaliveImpl (boost::asio::io_service::work work, KeepaliveHandler handler) {
-		if (stream().is_open()) {
+		auto ec = getStreamError();
+		if (!ec) {
 			doKeepalive(work, handler);
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
+			work.get_io_service().post(std::bind(handler, ec));
 		}
 	}
 
 	void asyncSendImpl (boost::asio::io_service::work work,
 						boost::asio::const_buffer buffer,
 						SendHandler handler) {
-		if (stream().is_open()) {
+		auto ec = getStreamError();
+		if (!ec) {
 			size_t outlen;
 			sfpWritePacket(&mContext,
 				boost::asio::buffer_cast<const uint8_t*>(buffer),
@@ -275,19 +287,20 @@ private:
 			flushWriteBuffer(work, [handler] (boost::system::error_code ec) { handler(ec); });
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down));
+			work.get_io_service().post(std::bind(handler, ec));
 		}
 	}
 
 	void asyncReceiveImpl (boost::asio::io_service::work work,
 						   boost::asio::mutable_buffer buffer,
 						   ReceiveHandler handler) {
-		if (stream().is_open()) {
+		auto ec = getStreamError();
+		if (!ec) {
 			mReceives.emplace(ReceiveData{work, buffer, handler});
 			postReceives();
 		}
 		else {
-			work.get_io_service().post(std::bind(handler, boost::asio::error::network_down, 0));
+			work.get_io_service().post(std::bind(handler, ec, 0));
 		}
 	}
 
@@ -302,6 +315,10 @@ private:
 	void handshakeStepOne (boost::asio::io_service::work work,
 						   HandshakeHandler handler,
 						   boost::system::error_code ec) {
+		if (!ec || boost::asio::error::operation_aborted == ec) {
+			ec = getStreamError();
+		}
+
 		if (!ec) {
 			if (sfpIsConnected(&mContext)) {
 				mSfpTimer.expires_from_now(kSfpSettleTimeout);
@@ -330,6 +347,10 @@ private:
 	void handshakeStepTwo (boost::asio::io_service::work work,
 						   HandshakeHandler handler,
 						   boost::system::error_code ec) {
+		if (!ec || boost::asio::error::operation_aborted == ec) {
+			ec = getStreamError();
+		}
+
 		if (!ec) {
 			if (sfpIsConnected(&mContext)) {
 				mSfpTimer.expires_from_now(kSfpSettleTimeout);
@@ -342,10 +363,6 @@ private:
 			}
 		}
 		else {
-			if (ec != boost::asio::error::operation_aborted) {
-				boost::system::error_code ignoredEc;
-				close(ignoredEc);
-			}
 			BOOST_LOG(mLog) << "Handshake step two failed: " << ec.message();
 			auto& ios = work.get_io_service();
 			ios.post(std::bind(handler, ec));
@@ -355,6 +372,10 @@ private:
 	void handshakeFinish (boost::asio::io_service::work work,
 						   HandshakeHandler handler,
 						   boost::system::error_code ec) {
+		if (!ec || boost::asio::error::operation_aborted == ec) {
+			ec = getStreamError();
+		}
+
 		if (!ec) {
 			if (sfpIsConnected(&mContext)) {
 				mHandshakeComplete = true;
@@ -367,10 +388,6 @@ private:
 			}
 		}
 		else {
-			if (ec != boost::asio::error::operation_aborted) {
-				boost::system::error_code ignoredEc;
-				close(ignoredEc);
-			}
 			BOOST_LOG(mLog) << "Handshake finish failed: " << ec.message();
 			auto& ios = work.get_io_service();
 			ios.post(std::bind(handler, ec));
@@ -416,6 +433,7 @@ private:
 			return;
 		}
 		mReadPumpRunning = true;
+		mReadPumpError = boost::system::error_code();
 		auto buf = std::make_shared<std::vector<uint8_t>>(1024);
 		readPump(buf);
 	}
@@ -428,8 +446,10 @@ private:
 		}
 		else {
 			BOOST_LOG(mLog) << "read pump failed, stream not open";
-			voidReceives(boost::asio::error::network_down);
+			boost::system::error_code ec = boost::asio::error::network_down;
+			voidReceives(ec);
 			mReadPumpRunning = false;
+			mReadPumpError = ec;
 		}
 	}
 
@@ -445,6 +465,7 @@ private:
 			BOOST_LOG(mLog) << "read pump: " << ec.message();
 			voidReceives(ec);
 			mReadPumpRunning = false;
+			mReadPumpError = ec;
 		};
 
 		if (!ec) {
@@ -454,7 +475,7 @@ private:
 				assert(-1 != rc);
 			}
 			boost::asio::io_service::work localWork { stream().get_io_service() };
-			flushWriteBuffer(localWork, mStrand.wrap([stopReadPump, buf] (sys::error_code ec) {
+			flushWriteBuffer(localWork, mStrand.wrap([self, this, stopReadPump, buf] (sys::error_code ec) {
 				if (!ec) {
 					postReceives();
 					readPump(buf);
@@ -491,8 +512,7 @@ private:
 			}
 			else {
 				BOOST_LOG(mLog) << "write pump failed, stream not open";
-				boost::system::error_code ec;
-				voidOutbox(ec);
+				voidOutbox(boost::asio::error::network_down);
 			}
 		}
 	}
@@ -566,7 +586,6 @@ private:
 	std::chrono::milliseconds kSfpSettleTimeout { 200 } ;
 	std::chrono::milliseconds kSfpKeepaliveTimeout { 500 };
 
-
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;
 
@@ -574,6 +593,7 @@ private:
 	std::queue<SendData> mOutbox;
 
 	bool mReadPumpRunning = false;
+	boost::system::error_code mReadPumpError;
 
 	detail::StreamWrapper<Stream> mStreamWrapper;
 	boost::asio::steady_timer mSfpTimer;
