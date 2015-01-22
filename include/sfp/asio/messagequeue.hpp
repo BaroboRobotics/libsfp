@@ -2,6 +2,7 @@
 #define LIBSFP_ASIO_MESSAGEQUEUE_HPP
 
 #include "sfp/serial_framing_protocol.h"
+#include "sfp/system_error.hpp"
 
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/basic_stream_socket.hpp>
@@ -305,20 +306,30 @@ private:
 		}
 	}
 
-	void doHandshake (boost::asio::io_service::work work, HandshakeHandler handler) {
+	void doHandshake (boost::asio::io_service::work work, HandshakeHandler handler, int nTries = 0) {
 		boost::asio::io_service::work localWork { stream().get_io_service() };
-		sfpConnect(&mContext);
-		flushWriteBuffer(localWork, mStrand.wrap(
-			std::bind(&MessageQueueImpl::handshakeStepOne,
-				this->shared_from_this(), work, handler, _1)));
+
+		if (kSfpMaxHandshakeAttempts && nTries > kSfpMaxHandshakeAttempts) {
+			BOOST_LOG(mLog) << "Giving up handshake after " << nTries << " attempts";
+			auto& ios = work.get_io_service();
+			ios.post(std::bind(handler, Status::HANDSHAKE_FAILED));
+		}
+		else {
+			sfpConnect(&mContext);
+			flushWriteBuffer(localWork, mStrand.wrap(
+				std::bind(&MessageQueueImpl::handshakeStepOne,
+					this->shared_from_this(), work, handler, ++nTries, _1)));
+		}
 	}
 
 	void handshakeStepOne (boost::asio::io_service::work work,
 						   HandshakeHandler handler,
+						   int nTries,
 						   boost::system::error_code ec) {
 		if (!ec || boost::asio::error::operation_aborted == ec) {
 			ec = getStreamError();
 		}
+
 
 		if (!ec) {
 			if (sfpIsConnected(&mContext)) {
@@ -331,7 +342,7 @@ private:
 				mSfpTimer.expires_from_now(kSfpConnectTimeout);
 				mSfpTimer.async_wait(mStrand.wrap(
 					std::bind(&MessageQueueImpl::handshakeStepTwo,
-						this->shared_from_this(), work, handler, _1)));
+						this->shared_from_this(), work, handler, nTries, _1)));
 			}
 		}
 		else {
@@ -347,6 +358,7 @@ private:
 
 	void handshakeStepTwo (boost::asio::io_service::work work,
 						   HandshakeHandler handler,
+						   int nTries,
 						   boost::system::error_code ec) {
 		if (!ec || boost::asio::error::operation_aborted == ec) {
 			ec = getStreamError();
@@ -360,7 +372,7 @@ private:
 						this->shared_from_this(), work, handler, _1)));
 			}
 			else {
-				doHandshake(work, handler);
+				doHandshake(work, handler, nTries);
 			}
 		}
 		else {
@@ -586,6 +598,7 @@ private:
 	std::chrono::milliseconds kSfpConnectTimeout { 100 } ;
 	std::chrono::milliseconds kSfpSettleTimeout { 200 } ;
 	std::chrono::milliseconds kSfpKeepaliveTimeout { 500 };
+	static constexpr const int kSfpMaxHandshakeAttempts { 50 };
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;

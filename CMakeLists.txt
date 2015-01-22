@@ -24,6 +24,12 @@ set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 set(sources src/serial_framing_protocol.cpp )
 
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("int main () { throw int(); }" HAVE_EXCEPTIONS)
+if(HAVE_EXCEPTIONS)
+    list(APPEND sources src/system_error.cpp)
+endif()
+
 add_library(${target} ${sources})
 target_compile_options(${target} PRIVATE "-std=c++11")
 
