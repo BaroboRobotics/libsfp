@@ -145,6 +145,7 @@ public:
 			boost::system::error_code ec;
 			mSfpTimer.cancel(ec);
 			stream().close(ec);
+			mStreamError = boost::asio::error::operation_aborted;
 		});
 		// FIXME, can't report an error, because we need to worry about thread
 		// safety. Could fix this by using a mutex to protect the timer and
@@ -233,8 +234,8 @@ private:
 	};
 
 	boost::system::error_code getStreamError () {
-		auto ec = mReadPumpError;
-		mReadPumpError = boost::system::error_code();
+		auto ec = mStreamError;
+		mStreamError = boost::system::error_code();
 		if (!ec && !stream().is_open()) {
 			ec = boost::asio::error::network_down;
 		}
@@ -433,7 +434,7 @@ private:
 			return;
 		}
 		mReadPumpRunning = true;
-		mReadPumpError = boost::system::error_code();
+		mStreamError = boost::system::error_code();
 		auto buf = std::make_shared<std::vector<uint8_t>>(1024);
 		readPump(buf);
 	}
@@ -449,7 +450,7 @@ private:
 			boost::system::error_code ec = boost::asio::error::network_down;
 			voidReceives(ec);
 			mReadPumpRunning = false;
-			mReadPumpError = ec;
+			mStreamError = ec;
 		}
 	}
 
@@ -465,7 +466,7 @@ private:
 			BOOST_LOG(mLog) << "read pump: " << ec.message();
 			voidReceives(ec);
 			mReadPumpRunning = false;
-			mReadPumpError = ec;
+			mStreamError = ec;
 		};
 
 		if (!ec) {
@@ -593,7 +594,7 @@ private:
 	std::queue<SendData> mOutbox;
 
 	bool mReadPumpRunning = false;
-	boost::system::error_code mReadPumpError;
+	boost::system::error_code mStreamError;
 
 	detail::StreamWrapper<Stream> mStreamWrapper;
 	boost::asio::steady_timer mSfpTimer;
