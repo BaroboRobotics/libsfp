@@ -27,11 +27,18 @@ set(sources src/serial_framing_protocol.cpp )
 include(CheckCXXSourceCompiles)
 check_cxx_source_compiles("int main () { throw int(); }" HAVE_EXCEPTIONS)
 if(HAVE_EXCEPTIONS)
+    set(Boost_USE_STATIC_LIBS ON)
+    find_package(Boost 1.54.0 REQUIRED COMPONENTS system)
     list(APPEND sources src/system_error.cpp)
 endif()
 
 add_library(${target} ${sources})
 target_compile_options(${target} PRIVATE "-std=c++11")
+
+if(HAVE_EXCEPTIONS)
+    target_include_directories(${target} PUBLIC ${Boost_INCLUDE_DIRS})
+    target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES})
+endif()
 
 if(SFP_BUILD_TESTS)
     enable_testing()
