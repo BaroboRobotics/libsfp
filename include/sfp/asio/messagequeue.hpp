@@ -144,9 +144,9 @@ public:
 		auto self = this->shared_from_this();
 		mStrand.post([self, this] () mutable {
 			boost::system::error_code ec;
-			mSfpTimer.cancel(ec);
-			stream().close(ec);
-			mStreamError = boost::asio::error::operation_aborted;
+			this->mSfpTimer.cancel(ec);
+			this->stream().close(ec);
+			this->mStreamError = boost::asio::error::operation_aborted;
 		});
 		// FIXME, can't report an error, because we need to worry about thread
 		// safety. Could fix this by using a mutex to protect the timer and
@@ -470,15 +470,15 @@ private:
 					 boost::system::error_code ec,
 					 size_t nRead) {
 		auto self = this->shared_from_this();
-		auto stopReadPump = [self, this] (sys::error_code ec) {
+		auto stopReadPump = [self, this] (sys::error_code ec) mutable {
 			if (ec != boost::asio::error::operation_aborted) {
 				boost::system::error_code ignoredEc;
-				close(ignoredEc);
+				this->close(ignoredEc);
 			}
-			BOOST_LOG(mLog) << "read pump: " << ec.message();
-			voidReceives(ec);
-			mReadPumpRunning = false;
-			mStreamError = ec;
+			BOOST_LOG(this->mLog) << "read pump: " << ec.message();
+			this->voidReceives(ec);
+			this->mReadPumpRunning = false;
+			this->mStreamError = ec;
 		};
 
 		if (!ec) {
@@ -490,8 +490,8 @@ private:
 			boost::asio::io_service::work localWork { stream().get_io_service() };
 			flushWriteBuffer(localWork, mStrand.wrap([self, this, stopReadPump, buf] (sys::error_code ec) {
 				if (!ec) {
-					postReceives();
-					readPump(buf);
+					this->postReceives();
+					this->readPump(buf);
 				}
 				else {
 					stopReadPump(ec);
@@ -633,7 +633,7 @@ public:
             boost::log::sources::logger log;
             try {
 	            boost::system::error_code ec;
-	            auto nHandlers = mAsyncIoService.run(ec);
+	            auto nHandlers = this->mAsyncIoService.run(ec);
 	            BOOST_LOG(log) << "SFP MessageQueueService: " << nHandlers << " completed with " << ec.message();
             }
             catch (std::exception& e) {
