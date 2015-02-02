@@ -488,7 +488,7 @@ private:
 				assert(-1 != rc);
 			}
 			boost::asio::io_service::work localWork { stream().get_io_service() };
-			flushWriteBuffer(localWork, mStrand.wrap([self, this, stopReadPump, buf] (sys::error_code ec) {
+			flushWriteBuffer(localWork, mStrand.wrap([self, this, stopReadPump, buf] (sys::error_code ec) mutable {
 				if (!ec) {
 					this->postReceives();
 					this->readPump(buf);
