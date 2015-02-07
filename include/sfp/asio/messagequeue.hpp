@@ -146,6 +146,9 @@ public:
 			boost::system::error_code ec;
 			this->mSfpTimer.cancel(ec);
 			this->stream().close(ec);
+			if (ec) {
+				BOOST_LOG(mLog) << "Error closing MessageQueue stream: " << ec.message();
+			}
 			this->mStreamError = boost::asio::error::operation_aborted;
 		});
 		// FIXME, can't report an error, because we need to worry about thread
