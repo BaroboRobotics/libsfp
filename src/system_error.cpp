@@ -2,11 +2,11 @@
 
 namespace sfp {
 
-const char* ErrorCategory::name () const noexcept {
+const char* ErrorCategory::name () const BOOST_NOEXCEPT {
     return "sfp";
 }
 
-std::string ErrorCategory::message (int ev) const noexcept {
+std::string ErrorCategory::message (int ev) const BOOST_NOEXCEPT {
     switch (Status(ev)) {
 #define ITEM(x) case Status::x: return #x;
         ITEM(OK)

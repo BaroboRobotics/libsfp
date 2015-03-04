@@ -100,16 +100,16 @@ private:
 
 } // namespace detail
 
-using HandshakeHandlerSignature = void(sys::error_code);
+typedef void HandshakeHandlerSignature(sys::error_code);
 using HandshakeHandler = std::function<HandshakeHandlerSignature>;
 
-using KeepaliveHandlerSignature = void(sys::error_code);
+typedef void KeepaliveHandlerSignature(sys::error_code);
 using KeepaliveHandler = std::function<KeepaliveHandlerSignature>;
 
-using ReceiveHandlerSignature = void(sys::error_code, size_t);
+typedef void ReceiveHandlerSignature(sys::error_code, size_t);
 using ReceiveHandler = std::function<ReceiveHandlerSignature>;
 
-using SendHandlerSignature = void(sys::error_code);
+typedef void SendHandlerSignature(sys::error_code);
 using SendHandler = std::function<SendHandlerSignature>;
 
 template <class S>
@@ -603,7 +603,7 @@ private:
 	std::chrono::milliseconds kSfpConnectTimeout { 100 } ;
 	std::chrono::milliseconds kSfpSettleTimeout { 200 } ;
 	std::chrono::milliseconds kSfpKeepaliveTimeout { 500 };
-	static constexpr const int kSfpMaxHandshakeAttempts { 50 };
+	static const int kSfpMaxHandshakeAttempts { 50 };
 
 	std::queue<std::vector<uint8_t>> mInbox;
 	std::queue<ReceiveData> mReceives;

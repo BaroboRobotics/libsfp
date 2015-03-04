@@ -12,8 +12,8 @@ namespace sfp {
 
 class ErrorCategory : public boost::system::error_category {
 public:
-    virtual const char* name () const noexcept override;
-    virtual std::string message (int ev) const noexcept override;
+    virtual const char* name () const BOOST_NOEXCEPT override;
+    virtual std::string message (int ev) const BOOST_NOEXCEPT override;
 };
 
 const boost::system::error_category& errorCategory ();
