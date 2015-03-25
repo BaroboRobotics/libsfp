@@ -33,7 +33,10 @@ if(HAVE_EXCEPTIONS)
 endif()
 
 add_library(${target} ${sources})
-target_compile_options(${target} PRIVATE "-std=c++11")
+set_source_files_properties(${sources}
+    PROPERTIES CXX_STANDARD 11
+               CXX_STANDARD_REQUIRED ON
+               )
 
 if(HAVE_EXCEPTIONS)
     target_include_directories(${target} PUBLIC ${Boost_INCLUDE_DIRS})
