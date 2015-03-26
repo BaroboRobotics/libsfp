@@ -1,7 +1,7 @@
 # Serial Framing Protocol library
 # Barobo, Inc.
 
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.2.1)
 
 set(target sfp)
 project(${target})
@@ -33,7 +33,7 @@ if(HAVE_EXCEPTIONS)
 endif()
 
 add_library(${target} ${sources})
-set_source_files_properties(${sources}
+set_target_properties(${target}
     PROPERTIES CXX_STANDARD 11
                CXX_STANDARD_REQUIRED ON
                )
