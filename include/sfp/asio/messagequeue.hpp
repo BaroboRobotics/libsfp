@@ -475,7 +475,6 @@ private:
 		auto self = this->shared_from_this();
 		auto stopReadPump = [self, this] (sys::error_code ec) mutable {
 			BOOST_LOG(this->mLog) << "read pump: " << ec.message();
-			this->voidOutbox(ec);
 			this->voidReceives(ec);
 			if (ec != boost::asio::error::operation_aborted) {
 				boost::system::error_code ignoredEc;
@@ -545,7 +544,6 @@ private:
 		else {
 			BOOST_LOG(mLog) << "write pump: " << ec.message();
 			voidOutbox(ec);
-			voidReceives(ec);
 			if (ec != boost::asio::error::operation_aborted) {
 				boost::system::error_code ignoredEc;
 				close(ignoredEc);
