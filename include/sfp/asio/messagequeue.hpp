@@ -33,7 +33,7 @@ namespace sys = boost::system;
 
 using namespace std::placeholders;
 
-namespace detail {
+namespace _ {
 
 // Not all stream objects provide compatible APIs. Stream sockets, for
 // for instance, require that .shutdown() is called before .close() in order
@@ -98,7 +98,7 @@ private:
 	Stream mStream;
 };
 
-} // namespace detail
+} // namespace _
 
 typedef void HandshakeHandlerSignature(sys::error_code);
 using HandshakeHandler = std::function<HandshakeHandlerSignature>;
@@ -614,7 +614,7 @@ private:
 	bool mReadPumpRunning = false;
 	boost::system::error_code mStreamError;
 
-	detail::StreamWrapper<Stream> mStreamWrapper;
+	_::StreamWrapper<Stream> mStreamWrapper;
 	boost::asio::steady_timer mSfpTimer;
 	boost::asio::io_service::strand mStrand;
 
