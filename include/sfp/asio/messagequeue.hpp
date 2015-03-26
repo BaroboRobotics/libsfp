@@ -145,7 +145,7 @@ public:
 		mStrand.post([self, this] () mutable {
 			boost::system::error_code ec;
 			this->mSfpTimer.cancel(ec);
-			this->stream().close(ec);
+			this->mStreamWrapper.close(ec);
 			if (ec) {
 				BOOST_LOG(mLog) << "Error closing MessageQueue stream: " << ec.message();
 			}
