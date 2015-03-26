@@ -636,23 +636,14 @@ public:
         , mAsyncWork(boost::in_place(std::ref(mAsyncIoService)))
         , mAsyncThread([this] () mutable {
             boost::log::sources::logger log;
-            try {
-	            boost::system::error_code ec;
-	            auto nHandlers = this->mAsyncIoService.run(ec);
-	            BOOST_LOG(log) << "SFP MessageQueueService: " << nHandlers << " completed with " << ec.message();
-            }
-            catch (std::exception& e) {
-            	BOOST_LOG(log) << "SFP MessageQueueService died with " << e.what();
-            }
-            catch (...) {
-            	BOOST_LOG(log) << "SFP MessageQueueService died by unknown cause";
-            }
+            boost::system::error_code ec;
+            auto nHandlers = this->mAsyncIoService.run(ec);
+            BOOST_LOG(log) << "SFP MessageQueueService: " << nHandlers << " completed with " << ec.message();
         })
     {}
 
     ~MessageQueueService () {
         mAsyncWork = boost::none;
-        //mAsyncIoService.stop();
         mAsyncThread.join();
     }
 
