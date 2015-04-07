@@ -16,8 +16,8 @@ option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
 option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 
 option(SFP_CONFIG_DEBUG "Enable SFP debugging messages" OFF)
-option(SFP_CONFIG_WARN "Enable SFP warnings" OFF)
-option(SFP_CONFIG_ERROR "Enable SFP errors" OFF)
+option(SFP_CONFIG_WARN "Enable SFP warnings" ON)
+option(SFP_CONFIG_ERROR "Enable SFP errors" ON)
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 3)
