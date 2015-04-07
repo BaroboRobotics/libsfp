@@ -1,8 +1,13 @@
 #include "sfp/serial_framing_protocol.h"
 
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
-#include <boost/log/sources/record_ostream.hpp>
-#include <boost/log/utility/manipulators/dump.hpp>
+# include <boost/log/sources/record_ostream.hpp>
+# include <boost/log/utility/manipulators/dump.hpp>
+# include <boost/predef.h>
+# if BOOST_COMP_MSVC
+#  pragma message Hacking around snprintf MSVC deficiency, rewrite this crap
+#  define snprintf _snprintf
+# endif
 #endif
 
 #include <assert.h>
@@ -23,11 +28,6 @@ static uint16_t _crc_ccitt_update (uint16_t crc, uint8_t octet) {
 }
 #endif
 
-#include <boost/predef.h>
-#if BOOST_COMP_MSVC
-# pragma message Hacking around snprintf MSVC deficiency, rewrite this crap
-# define snprintf _snprintf
-#endif
 
 //////////////////////////////////////////////////////////////////////////////
 
