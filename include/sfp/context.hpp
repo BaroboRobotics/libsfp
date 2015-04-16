@@ -45,6 +45,7 @@ public:
     void input (uint8_t octet) {
         auto rc = sfpDeliverOctet(&mContext, octet, nullptr, 0, nullptr);
         assert(-1 != rc);
+        (void)rc;
     }
 
     // outgoing octet signal
