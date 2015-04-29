@@ -54,11 +54,7 @@ public:
 
 	void close (boost::system::error_code& ec) {
 		boost::log::sources::logger log;
-		BOOST_LOG(log) << "Closing a generic Stream";
 		mStream.close(ec);
-		if (ec) {
-			BOOST_LOG(log) << "Stream.close() resulted in " << ec.message();
-		}
 	}
 
 private:
@@ -79,18 +75,15 @@ public:
 
 	void close (boost::system::error_code& ec) {
 		boost::log::sources::logger log;
-		BOOST_LOG(log) << "Closing a basic_stream_socket";
 		boost::system::error_code lEc;
 		ec = lEc;
 		mStream.shutdown(boost::asio::socket_base::shutdown_both, lEc);
 		if (lEc) {
 			ec = lEc;
-			BOOST_LOG(log) << "basic_stream_socket.shutdown() resulted in " << ec.message();
 		}
 		mStream.close(lEc);
 		if (lEc) {
 			ec = lEc;
-			BOOST_LOG(log) << "basic_stream_socket.close() resulted in " << ec.message();
 		}
 	}
 
