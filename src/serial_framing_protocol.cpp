@@ -111,8 +111,6 @@ void sfpInit (SFPcontext *ctx) {
   sfpSetWriteCallback(ctx, SFP_WRITE_ONE, NULL, NULL);
   sfpSetLockCallback(ctx, NULL, NULL);
   sfpSetUnlockCallback(ctx, NULL, NULL);
-
-  RINGBUF_INIT(ctx->tx.history);
 }
 
 struct TransmitterLock {
@@ -616,14 +614,14 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
   /* The number of frames we'll have to drop from our history ring buffer in
    * order to fast-forward to the given sequence number. */
   unsigned fastforward = seq
-    - (ctx->tx.seq - RINGBUF_SIZE(ctx->tx.history));
+    - (ctx->tx.seq - ctx->tx.history.size());
 
   fastforward &= (SFP_SEQ_RANGE - 1);
 
-  if (RINGBUF_SIZE(ctx->tx.history) > fastforward) {
+  if (ctx->tx.history.size() > fastforward) {
     unsigned i;
     for (i = 0; i < fastforward; ++i) {
-      RINGBUF_POP_FRONT(ctx->tx.history);
+      ctx->tx.history.popFront();
     }
   }
   else {
@@ -642,17 +640,17 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
 }
 
 static void sfpTransmitHistory (SFPcontext *ctx) {
-  size_t reTxCount = RINGBUF_SIZE(ctx->tx.history);
+  size_t reTxCount = ctx->tx.history.size();
 
   size_t i;
   for (i = 0; i < reTxCount; ++i) {
-    sfpTransmitRTX(ctx, &RINGBUF_AT(ctx->tx.history, i));
+    sfpTransmitRTX(ctx, &ctx->tx.history.at(i));
   }
 }
 
 static void sfpClearHistory (SFPcontext *ctx) {
-  while (!RINGBUF_EMPTY(ctx->tx.history)) {
-    RINGBUF_POP_FRONT(ctx->tx.history);
+  while (!ctx->tx.history.empty()) {
+    ctx->tx.history.popFront();
   }
 }
 
@@ -789,7 +787,7 @@ static int sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, size_t *out
   }
   else {
     header |= SFP_FRAME_USR << SFP_FIRST_CONTROL_BIT;
-    RINGBUF_PUSH_BACK(ctx->tx.history, *packet);
+    ctx->tx.history.pushBack(*packet);
   }
 
   int ret = sfpTransmitFrameWithHeader(ctx, header, packet, outlen);
