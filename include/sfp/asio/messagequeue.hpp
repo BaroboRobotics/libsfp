@@ -140,7 +140,7 @@ public:
 			this->mSfpTimer.cancel(ec);
 			this->mStreamWrapper.close(ec);
 			if (ec) {
-				BOOST_LOG(mLog) << "Error closing MessageQueue stream: " << ec.message();
+				BOOST_LOG(this->mLog) << "Error closing MessageQueue stream: " << ec.message();
 			}
 			this->mStreamError = boost::asio::error::operation_aborted;
 		});
