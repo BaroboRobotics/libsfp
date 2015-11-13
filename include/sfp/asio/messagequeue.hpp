@@ -13,6 +13,7 @@
 #include <boost/asio/write.hpp>
 
 #include <boost/optional.hpp>
+#include <boost/utility/in_place_factory.hpp>
 
 #include <boost/log/attributes/constant.hpp>
 #include <boost/log/sources/logger.hpp>
