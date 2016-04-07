@@ -1,6 +1,8 @@
 #ifndef LIBSFP_ASIO_MESSAGEQUEUE_HPP
 #define LIBSFP_ASIO_MESSAGEQUEUE_HPP
 
+#include <util/asynccompletion.hpp>
+
 #include "sfp/serial_framing_protocol.h"
 #include "sfp/system_error.hpp"
 
@@ -163,7 +165,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, HandshakeHandlerSignature)
 	asyncHandshake (boost::asio::io_service::work work, Handler&& handler) {
-		boost::asio::detail::async_result_init<
+		util::AsyncCompletion<
 			Handler, HandshakeHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
@@ -176,7 +178,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, KeepaliveHandlerSignature)
 	asyncKeepalive (boost::asio::io_service::work work, Handler&& handler) {
-	    boost::asio::detail::async_result_init<
+	    util::AsyncCompletion<
 	        Handler, KeepaliveHandlerSignature
 	    > init { std::forward<Handler>(handler) };
 
@@ -191,7 +193,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, SendHandlerSignature)
 	asyncSend (boost::asio::io_service::work work, boost::asio::const_buffer buffer, Handler&& handler) {
-		boost::asio::detail::async_result_init<
+		util::AsyncCompletion<
 			Handler, SendHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
@@ -206,7 +208,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, ReceiveHandlerSignature)
 	asyncReceive (boost::asio::io_service::work work, boost::asio::mutable_buffer buffer, Handler&& handler) {
-		boost::asio::detail::async_result_init<
+		util::AsyncCompletion<
 			Handler, ReceiveHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
