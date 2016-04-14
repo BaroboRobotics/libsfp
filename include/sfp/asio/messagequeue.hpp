@@ -1,7 +1,7 @@
 #ifndef LIBSFP_ASIO_MESSAGEQUEUE_HPP
 #define LIBSFP_ASIO_MESSAGEQUEUE_HPP
 
-#include <util/asynccompletion.hpp>
+#include <util/asio/asynccompletion.hpp>
 
 #include "sfp/serial_framing_protocol.h"
 #include "sfp/system_error.hpp"
