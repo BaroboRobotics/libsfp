@@ -165,7 +165,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, HandshakeHandlerSignature)
 	asyncHandshake (boost::asio::io_service::work work, Handler&& handler) {
-		util::AsyncCompletion<
+		util::asio::AsyncCompletion<
 			Handler, HandshakeHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
@@ -178,7 +178,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, KeepaliveHandlerSignature)
 	asyncKeepalive (boost::asio::io_service::work work, Handler&& handler) {
-	    util::AsyncCompletion<
+	    util::asio::AsyncCompletion<
 	        Handler, KeepaliveHandlerSignature
 	    > init { std::forward<Handler>(handler) };
 
@@ -193,7 +193,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, SendHandlerSignature)
 	asyncSend (boost::asio::io_service::work work, boost::asio::const_buffer buffer, Handler&& handler) {
-		util::AsyncCompletion<
+		util::asio::AsyncCompletion<
 			Handler, SendHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
@@ -208,7 +208,7 @@ public:
 	template <class Handler>
 	BOOST_ASIO_INITFN_RESULT_TYPE(Handler, ReceiveHandlerSignature)
 	asyncReceive (boost::asio::io_service::work work, boost::asio::mutable_buffer buffer, Handler&& handler) {
-		util::AsyncCompletion<
+		util::asio::AsyncCompletion<
 			Handler, ReceiveHandlerSignature
 		> init { std::forward<Handler>(handler) };
 
