@@ -38,7 +38,7 @@ endif()
 
 add_library(${target} ${sources})
 set_target_properties(${target}
-    PROPERTIES CXX_STANDARD 11
+    PROPERTIES CXX_STANDARD 14
                CXX_STANDARD_REQUIRED ON
                )
 
