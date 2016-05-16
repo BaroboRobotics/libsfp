@@ -1,4 +1,4 @@
-#include "sfp/serial_framing_protocol.h"
+#include <sfp/serial_framing_protocol.h>
 
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
 # include <boost/log/sources/record_ostream.hpp>
@@ -102,7 +102,7 @@ void sfpInit (SFPcontext *ctx) {
   sfpSetDeliverCallback(ctx, NULL, NULL);
 
   ////////////////////////////////////////////////////////////////////////////
-  
+
   ctx->tx.seq = SFP_INITIAL_SEQ;
   ctx->tx.crc = SFP_CRC_PRESET;
 

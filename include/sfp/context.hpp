@@ -1,8 +1,8 @@
 #ifndef CONTEXT_HPP
 #define CONTEXT_HPP
 
-#include "sfp/serial_framing_protocol.h"
-#include "util/callback.hpp"
+#include <sfp/serial_framing_protocol.h>
+#include <util/callback.hpp>
 
 #ifdef SFP_CONFIG_DEBUG
 #include <string>

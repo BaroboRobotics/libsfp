@@ -1,8 +1,8 @@
 #ifndef _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 #define _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 
-#include "sfp/config.h"
-#include "util/potringbuffer.hpp"
+#include <sfp/config.h>
+#include <util/potringbuffer.hpp>
 
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
 #include <boost/log/sources/logger.hpp>

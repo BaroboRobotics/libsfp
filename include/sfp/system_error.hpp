@@ -1,7 +1,7 @@
 #ifndef SFP_SYSTEM_ERROR_HPP
 #define SFP_SYSTEM_ERROR_HPP
 
-#include "sfp/status.hpp"
+#include <sfp/status.hpp>
 
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
