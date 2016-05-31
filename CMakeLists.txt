@@ -44,7 +44,9 @@ set_target_properties(${target}
 
 if(HAVE_EXCEPTIONS)
     target_include_directories(${target} PUBLIC ${Boost_INCLUDE_DIRS})
-    target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES})
+    target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES} PUBLIC cxx-util)
+else()
+    target_link_libraries(${target} PUBLIC cxx-util)
 endif()
 
 if(SFP_BUILD_TESTS)
@@ -64,7 +66,6 @@ configure_file(config.h.in include/sfp/config.h)
 target_include_directories(${target}
     PUBLIC include
            ${PROJECT_BINARY_DIR}/include
-           $<TARGET_PROPERTY:cxx-util,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 # Staging
