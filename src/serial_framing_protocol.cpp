@@ -1,4 +1,14 @@
-#include "sfp/serial_framing_protocol.h"
+#include <sfp/serial_framing_protocol.h>
+
+#if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
+# include <boost/log/sources/record_ostream.hpp>
+# include <boost/log/utility/manipulators/dump.hpp>
+# include <boost/predef.h>
+# if BOOST_COMP_MSVC
+#  pragma message Hacking around snprintf MSVC deficiency, rewrite this crap
+#  define snprintf _snprintf
+# endif
+#endif
 
 #include <assert.h>
 #include <stdio.h>
@@ -17,6 +27,7 @@ static uint16_t _crc_ccitt_update (uint16_t crc, uint8_t octet) {
   return ((((uint16_t)octet << 8) | ((crc >> 8) & 0xff)) ^ (uint8_t)(octet >> 4) ^ ((uint16_t)octet << 3));
 }
 #endif
+
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -91,7 +102,7 @@ void sfpInit (SFPcontext *ctx) {
   sfpSetDeliverCallback(ctx, NULL, NULL);
 
   ////////////////////////////////////////////////////////////////////////////
-  
+
   ctx->tx.seq = SFP_INITIAL_SEQ;
   ctx->tx.crc = SFP_CRC_PRESET;
 
@@ -100,8 +111,6 @@ void sfpInit (SFPcontext *ctx) {
   sfpSetWriteCallback(ctx, SFP_WRITE_ONE, NULL, NULL);
   sfpSetLockCallback(ctx, NULL, NULL);
   sfpSetUnlockCallback(ctx, NULL, NULL);
-
-  RINGBUF_INIT(ctx->tx.history);
 }
 
 struct TransmitterLock {
@@ -231,7 +240,7 @@ int sfpDeliverOctet (SFPcontext *ctx, uint8_t octet, uint8_t *buf, size_t len, s
 int sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len, size_t *outlen) {
 #ifdef SFP_CONFIG_WARN
   if (SFP_CONNECT_STATE_CONNECTED != ctx->connectState) {
-    fprintf(stderr, "(sfp) WARNING: Attempting to send packet on disconnected link.\n");
+    BOOST_LOG(ctx->log) << "(sfp) WARNING: Attempting to send packet on disconnected link.";
   }
 #endif
   assert(SFP_CONFIG_MAX_PACKET_SIZE >= len);
@@ -358,7 +367,7 @@ static int sfpHandleFrame (SFPcontext *ctx) {
   /* Verify the length. */
   if (SFP_CRC_SIZE > ctx->rx.packet.len) {
 #ifdef SFP_CONFIG_WARN
-    fprintf(stderr, "(sfp) WARNING: short frame received, sending NAK.\n");
+    BOOST_LOG(ctx->log) << "(sfp) WARNING: short frame received, sending NAK.";
 #endif
     TransmitterLock lock { ctx };
     sfpTransmitNAK(ctx, ctx->rx.seq);
@@ -371,7 +380,7 @@ static int sfpHandleFrame (SFPcontext *ctx) {
   /* Verify the CRC. */
   if (SFP_CRC_GOOD != ctx->rx.crc) {
 #ifdef SFP_CONFIG_WARN
-    fprintf(stderr, "(sfp) WARNING: CRC mismatch, sending NAK.\n");
+    BOOST_LOG(ctx->log) << "(sfp) WARNING: CRC mismatch, sending NAK.";
 #endif
     TransmitterLock lock { ctx };
     sfpTransmitNAK(ctx, ctx->rx.seq);
@@ -379,16 +388,10 @@ static int sfpHandleFrame (SFPcontext *ctx) {
   }
 
 #ifdef SFP_CONFIG_DEBUG
-  fprintf(stderr, "(sfp) DEBUG(%s): Received frame: (%s | SEQ<%d>) |",
-      ctx->debugName,
-      frameTypeToString(getFrameType(ctx->rx.header)),
-      getFrameSeq(ctx->rx.header));
-
-  size_t i;
-  for (i = 0; i < ctx->rx.packet.len; ++i) {
-    fprintf(stderr, " %02x", ctx->rx.packet.buf[i]);
-  }
-  fprintf(stderr, "\n");
+  BOOST_LOG(ctx->log) << "(sfp) DEBUG(" << ctx->debugName
+                      << "): Received frame: (" << frameTypeToString(getFrameType(ctx->rx.header))
+                      << " | SEQ<" << int(getFrameSeq(ctx->rx.header)) << ">) | "
+                      << boost::log::dump(ctx->rx.packet.buf, ctx->rx.packet.len, 16);
 #endif
 
   int ret = 0;
@@ -470,14 +473,14 @@ static int sfpHandleUSR (SFPcontext *ctx) {
 
     if (SFP_FRAME_USR == type) {
 #ifdef SFP_CONFIG_WARN
-      fprintf(stderr, "(sfp) WARNING: out-of-order frame received, sending NAK.\n");
+      BOOST_LOG(ctx->log) << "(sfp) WARNING: out-of-order frame received, sending NAK.";
 #endif
       TransmitterLock lock { ctx };
       sfpTransmitNAK(ctx, ctx->rx.seq);
     }
     else {
 #ifdef SFP_CONFIG_WARN
-      fprintf(stderr, "(sfp) WARNING: out-of-order retransmitted frame received, ignoring.\n");
+      BOOST_LOG(ctx->log) << "(sfp) WARNING: out-of-order retransmitted frame received, ignoring.";
 #endif
     }
   }
@@ -515,7 +518,7 @@ static void sfpHandleSYN1 (SFPcontext *ctx) {
     }
     ctx->connectState = SFP_CONNECT_STATE_CONNECTED;
 #ifdef SFP_CONFIG_DEBUG
-    fprintf(stderr, "(sfp) DEBUG(%s): Connected!\n", ctx->debugName);
+    BOOST_LOG(ctx->log) << "(sfp) DEBUG(" << ctx->debugName << "): Connected!";
 #endif
   }
 }
@@ -533,7 +536,7 @@ static void sfpHandleSYN2 (SFPcontext *ctx) {
     }
     ctx->connectState = SFP_CONNECT_STATE_CONNECTED;
 #ifdef SFP_CONFIG_DEBUG
-    fprintf(stderr, "(sfp) DEBUG(%s): Connected!\n", ctx->debugName);
+    BOOST_LOG(ctx->log) << "(sfp) DEBUG(" << ctx->debugName << "): Connected!";
 #endif
   }
 }
@@ -560,8 +563,7 @@ static void sfpHandleNAK (SFPcontext *ctx) {
   SFPseq seq = getFrameSeq(ctx->rx.header);
 
 #ifdef SFP_CONFIG_DEBUG
-    fprintf(stderr, "(sfp) DEBUG(%s): received NAK<%d> for SEQ<%d>.\n",
-        ctx->debugName, seq, ctx->tx.seq);
+  BOOST_LOG(ctx->log) << "(sfp) DEBUG(" << ctx->debugName << "): received NAK<" << seq << "> for SEQ<" << ctx->tx.seq << ">.";
 #endif
 
   if (seq != ctx->tx.seq) {
@@ -612,20 +614,19 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
   /* The number of frames we'll have to drop from our history ring buffer in
    * order to fast-forward to the given sequence number. */
   unsigned fastforward = seq
-    - (ctx->tx.seq - RINGBUF_SIZE(ctx->tx.history));
+    - (ctx->tx.seq - ctx->tx.history.size());
 
   fastforward &= (SFP_SEQ_RANGE - 1);
 
-  if (RINGBUF_SIZE(ctx->tx.history) > fastforward) {
+  if (ctx->tx.history.size() > fastforward) {
     unsigned i;
     for (i = 0; i < fastforward; ++i) {
-      RINGBUF_POP_FRONT(ctx->tx.history);
+      ctx->tx.history.popFront();
     }
   }
   else {
 #ifdef SFP_CONFIG_ERROR
-    fprintf(stderr, "(sfp) ERROR: %d outgoing frame(s) lost by history buffer underrun.\n"
-        "\tTry adjusting SFP_CONFIG_HISTORY_CAPACITY.\n", SFP_SEQ_RANGE - fastforward);
+    BOOST_LOG(ctx->log) << "(sfp) ERROR: " << SFP_SEQ_RANGE - fastforward << " outgoing frame(s) lost by history buffer underrun.";
 #endif
 
     /* Even if we lost frames, the show still has to go on. Resynchronize, and
@@ -639,17 +640,17 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
 }
 
 static void sfpTransmitHistory (SFPcontext *ctx) {
-  size_t reTxCount = RINGBUF_SIZE(ctx->tx.history);
+  size_t reTxCount = ctx->tx.history.size();
 
   size_t i;
   for (i = 0; i < reTxCount; ++i) {
-    sfpTransmitRTX(ctx, &RINGBUF_AT(ctx->tx.history, i));
+    sfpTransmitRTX(ctx, &ctx->tx.history.at(i));
   }
 }
 
 static void sfpClearHistory (SFPcontext *ctx) {
-  while (!RINGBUF_EMPTY(ctx->tx.history)) {
-    RINGBUF_POP_FRONT(ctx->tx.history);
+  while (!ctx->tx.history.empty()) {
+    ctx->tx.history.popFront();
   }
 }
 
@@ -684,9 +685,9 @@ static void sfpPrintReceiverState (SFPcontext *ctx, FILE *out) {
 static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet) {
   if (SFP_CONFIG_MAX_PACKET_SIZE <= ctx->rx.packet.len) {
 #ifdef SFP_CONFIG_ERROR
-    fprintf(stderr, "(sfp) ERROR: incoming frame(s) lost by frame buffer overrun.\n"
-        "\tTry increasing SFP_CONFIG_MAX_PACKET_SIZE.\n"
-        "\tThis could also be caused by a corrupt FLAG octet.\n");
+    BOOST_LOG(ctx->log) << "(sfp) ERROR: incoming frame(s) lost by frame buffer overrun."
+                        << " Try increasing SFP_CONFIG_MAX_PACKET_SIZE."
+                        << " This could also be caused by a corrupt FLAG octet.";
 #endif
 
     /* Until I have a better idea, just going to pretend we didn't receive
@@ -786,7 +787,7 @@ static int sfpTransmitFrameImpl (SFPcontext *ctx, SFPpacket *packet, size_t *out
   }
   else {
     header |= SFP_FRAME_USR << SFP_FIRST_CONTROL_BIT;
-    RINGBUF_PUSH_BACK(ctx->tx.history, *packet);
+    ctx->tx.history.pushBack(*packet);
   }
 
   int ret = sfpTransmitFrameWithHeader(ctx, header, packet, outlen);
@@ -848,19 +849,12 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
   sfpFlushWriteBuffer(ctx);
 
 #ifdef SFP_CONFIG_DEBUG
-  fprintf(stderr, "(sfp) DEBUG(%s): Sent frame: (%s | SEQ<%d>) ",
-      ctx->debugName,
-      frameTypeToString(getFrameType(header)),
-      getFrameSeq(header));
-
-  if (packet) {
-    fprintf(stderr, "| ");
-    size_t i;
-    for (i = 0; i < packet->len; ++i) {
-      fprintf(stderr, "%02x ", packet->buf[i]);
-    }
-  }
-  fprintf(stderr, "\n");
+  uint8_t nothing;
+  BOOST_LOG(ctx->log) << "(sfp) DEBUG(" << ctx->debugName << "): Sent frame: ("
+                      << frameTypeToString(getFrameType(header))
+                      << " | SEQ<" << int(getFrameSeq(header)) << ">) | "
+                      << (packet ? boost::log::dump(packet->buf, packet->len, 16)
+                                 : boost::log::dump(&nothing, 0, 0));
 #endif
 
   /* FIXME pass through the return values from sfpWrite* */

@@ -1,7 +1,7 @@
 # Serial Framing Protocol library
 # Barobo, Inc.
 
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.2.1)
 
 set(target sfp)
 project(${target})
@@ -15,6 +15,10 @@ endif()
 option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
 option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 
+option(SFP_CONFIG_DEBUG "Enable SFP debugging messages" OFF)
+option(SFP_CONFIG_WARN "Enable SFP warnings" OFF)
+option(SFP_CONFIG_ERROR "Enable SFP errors" OFF)
+
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 3)
 set(VERSION_PATCH 0)
@@ -24,8 +28,26 @@ set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 set(sources src/serial_framing_protocol.cpp )
 
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("int main () { throw int(); }" HAVE_EXCEPTIONS)
+if(HAVE_EXCEPTIONS)
+    set(Boost_USE_STATIC_LIBS ON)
+    find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread)
+    list(APPEND sources src/system_error.cpp)
+endif()
+
 add_library(${target} ${sources})
-target_compile_options(${target} PRIVATE "-std=c++11")
+set_target_properties(${target}
+    PROPERTIES CXX_STANDARD 14
+               CXX_STANDARD_REQUIRED ON
+               )
+
+if(HAVE_EXCEPTIONS)
+    target_include_directories(${target} PUBLIC ${Boost_INCLUDE_DIRS})
+    target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES} PUBLIC cxx-util)
+else()
+    target_link_libraries(${target} PUBLIC cxx-util)
+endif()
 
 if(SFP_BUILD_TESTS)
     enable_testing()
@@ -44,7 +66,6 @@ configure_file(config.h.in include/sfp/config.h)
 target_include_directories(${target}
     PUBLIC include
            ${PROJECT_BINARY_DIR}/include
-           $<TARGET_PROPERTY:cxx-util,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 # Staging
@@ -57,4 +78,4 @@ else()
   set(dest lib)
 endif()
 
-install(TARGETS ${target} DESTINATION ${dest})
+#install(TARGETS ${target} DESTINATION ${dest})

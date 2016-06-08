@@ -1,8 +1,12 @@
 #ifndef _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 #define _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 
-#include "sfp/config.h"
-#include "sfp/ringbuf.h"
+#include <sfp/config.h>
+#include <util/potringbuffer.hpp>
+
+#if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
+#include <boost/log/sources/logger.hpp>
+#endif
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -112,7 +116,7 @@ typedef struct SFPtransmitter {
   SFPseq seq;
   SFPcrc crc;
 
-  RINGBUF(SFPpacket, SFP_CONFIG_HISTORY_CAPACITY) history;
+  util::PotRingbuffer<SFPpacket, SFP_CONFIG_HISTORY_CAPACITY> history;
 
   uint8_t writebuf[SFP_CONFIG_WRITEBUF_SIZE];
   size_t writebufn;
@@ -152,6 +156,9 @@ typedef struct SFPcontext {
 
 #ifdef SFP_CONFIG_DEBUG
   char debugName[SFP_CONFIG_MAX_DEBUG_NAME_SIZE];
+#endif
+#if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_ERROR) || defined(SFP_CONFIG_WARN)
+  boost::log::sources::logger log;
 #endif
 } SFPcontext;
 
