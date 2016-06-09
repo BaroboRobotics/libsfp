@@ -1,16 +1,8 @@
 # Serial Framing Protocol library
 # Barobo, Inc.
 
-cmake_minimum_required(VERSION 3.2.1)
-
-set(target sfp)
-project(${target})
-
-if(TARGET ${target})
-  # FIXME make sure that the current target's version or configuration matches?
-  # this feels rather dangerous. find_package would solve this conundrum :/
-  message(FATAL_ERROR "sfp already configured")
-endif()
+cmake_minimum_required(VERSION 3.5)
+project(sfp VERSION 0.3.0)
 
 option(SFP_BUILD_TESTS "Build libsfp tests" OFF)
 option(BUILD_SHARED_LIBS "build shared libraries" OFF)
@@ -18,11 +10,6 @@ option(BUILD_SHARED_LIBS "build shared libraries" OFF)
 option(SFP_CONFIG_DEBUG "Enable SFP debugging messages" OFF)
 option(SFP_CONFIG_WARN "Enable SFP warnings" OFF)
 option(SFP_CONFIG_ERROR "Enable SFP errors" OFF)
-
-set(VERSION_MAJOR 0)
-set(VERSION_MINOR 3)
-set(VERSION_PATCH 0)
-set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 
 # libsfp has a library target, and optional tests
 
@@ -36,17 +23,19 @@ if(HAVE_EXCEPTIONS)
     list(APPEND sources src/system_error.cpp)
 endif()
 
-add_library(${target} ${sources})
-set_target_properties(${target}
+find_package(cxx-util)
+
+add_library(sfp ${sources})
+set_target_properties(sfp
     PROPERTIES CXX_STANDARD 14
                CXX_STANDARD_REQUIRED ON
                )
 
 if(HAVE_EXCEPTIONS)
-    target_include_directories(${target} PUBLIC ${Boost_INCLUDE_DIRS})
-    target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES} PUBLIC cxx-util)
+    target_include_directories(sfp PUBLIC ${Boost_INCLUDE_DIRS})
+    target_link_libraries(sfp PRIVATE ${Boost_LIBRARIES} PUBLIC barobo::cxx-util)
 else()
-    target_link_libraries(${target} PUBLIC cxx-util)
+    target_link_libraries(sfp PUBLIC barobo::cxx-util)
 endif()
 
 if(SFP_BUILD_TESTS)
@@ -56,26 +45,54 @@ endif()
 
 # target properties
 
-set_target_properties(${target} PROPERTIES
-  VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
-  SOVERSION ${VERSION_MAJOR}
+set_target_properties(sfp PROPERTIES
+  VERSION ${PROJECT_VERSION}
+  SOVERSION ${PROJECT_VERSION_MAJOR}
   MACOSX_RPATH ON
 )
 
 configure_file(config.h.in include/sfp/config.h)
-target_include_directories(${target}
-    PUBLIC include
-           ${PROJECT_BINARY_DIR}/include
+target_include_directories(sfp
+    PRIVATE include
+            ${PROJECT_BINARY_DIR}/include
 )
 
-# Staging
 
-if(WIN32)
-  set(dest .)
-elseif(APPLE)
-  set(dest ../MacOS)
-else()
-  set(dest lib)
-endif()
+install(TARGETS sfp EXPORT barobo
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+    INCLUDES DESTINATION include
+)
 
-#install(TARGETS ${target} DESTINATION ${dest})
+install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/include/ DESTINATION include)
+
+# Boilerplate follows
+
+export(EXPORT barobo
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-targets.cmake"
+    NAMESPACE barobo::
+)
+
+install(EXPORT barobo
+    FILE ${PROJECT_NAME}-targets.cmake
+    NAMESPACE barobo::
+    DESTINATION cmake
+)
+
+file(WRITE "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
+    "include(\"\${CMAKE_CURRENT_LIST_DIR}/${PROJECT_NAME}-targets.cmake\")"
+)
+
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-configVersion.cmake"
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
+    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-configVersion.cmake"
+    DESTINATION cmake
+)
