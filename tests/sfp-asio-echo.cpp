@@ -1,12 +1,11 @@
-#include "sfp/asio/messagequeue.hpp"
+#include <sfp/asio/messagequeue.hpp>
+#include <util/log.hpp>
 
 #include <boost/optional.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/use_future.hpp>
 #include <boost/asio/spawn.hpp>
-
-#include <boost/log/sources/logger.hpp>
 
 #include <iostream>
 #include <functional>
@@ -20,7 +19,7 @@ int main (int argc, char** argv) {
     enum { SUCCEEDED, FAILED };
     int testResult = FAILED;
 
-    boost::log::sources::logger log;
+    util::log::Logger log;
     boost::asio::io_service ioService;
 
     using UnixDomainSocket = boost::asio::local::stream_protocol::socket;

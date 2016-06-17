@@ -5,7 +5,7 @@
 #include <util/potringbuffer.hpp>
 
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
-#include <boost/log/sources/logger.hpp>
+#include <util/log.hpp>
 #endif
 
 #include <stdlib.h>
@@ -158,7 +158,7 @@ typedef struct SFPcontext {
   char debugName[SFP_CONFIG_MAX_DEBUG_NAME_SIZE];
 #endif
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_ERROR) || defined(SFP_CONFIG_WARN)
-  boost::log::sources::logger log;
+  util::log::Logger log;
 #endif
 } SFPcontext;
 

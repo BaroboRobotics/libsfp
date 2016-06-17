@@ -1,7 +1,6 @@
 #include <sfp/serial_framing_protocol.h>
 
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
-# include <boost/log/sources/record_ostream.hpp>
 # include <boost/log/utility/manipulators/dump.hpp>
 # include <boost/predef.h>
 # if BOOST_COMP_MSVC

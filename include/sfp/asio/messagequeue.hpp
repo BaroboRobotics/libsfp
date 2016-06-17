@@ -1,10 +1,11 @@
 #ifndef LIBSFP_ASIO_MESSAGEQUEUE_HPP
 #define LIBSFP_ASIO_MESSAGEQUEUE_HPP
 
+#include <util/log.hpp>
 #include <util/asio/asynccompletion.hpp>
 
-#include "sfp/serial_framing_protocol.h"
-#include "sfp/system_error.hpp"
+#include <sfp/serial_framing_protocol.h>
+#include <sfp/system_error.hpp>
 
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/basic_stream_socket.hpp>
@@ -16,9 +17,7 @@
 #include <boost/optional.hpp>
 #include <boost/utility/in_place_factory.hpp>
 
-#include <boost/log/attributes/constant.hpp>
-#include <boost/log/sources/logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
+//#include <boost/log/attributes/constant.hpp>
 
 #include <chrono>
 #include <memory>
@@ -393,7 +392,7 @@ private:
     SFPcontext mContext;
     bool mHandshakeComplete = false;
 
-    mutable boost::log::sources::logger mLog;
+    mutable util::log::Logger mLog;
 };
 
 template <class Stream>
@@ -512,7 +511,7 @@ public:
         : util::asio::TransparentIoObject<MessageQueueImpl<S>>(context)
     {}
 
-    boost::log::sources::logger& log () const {
+    util::log::Logger& log () const {
         return this->get_implementation()->log();
     }
 
