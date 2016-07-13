@@ -3,6 +3,7 @@
 
 #include <util/log.hpp>
 #include <util/asio/asynccompletion.hpp>
+#include <util/producerconsumerqueue.hpp>
 
 #include <sfp/serial_framing_protocol.h>
 #include <sfp/system_error.hpp>
@@ -17,7 +18,7 @@
 #include <boost/optional.hpp>
 #include <boost/utility/in_place_factory.hpp>
 
-//#include <boost/log/attributes/constant.hpp>
+#include <boost/log/attributes/constant.hpp>
 
 #include <chrono>
 #include <memory>
@@ -147,7 +148,7 @@ public:
         > init { std::forward<CompletionToken>(token) };
 
         using Op = HandshakeOperation;
-        util::asio::makeOperation<Op>(std::move(init.handler), this->shared_from_this())();
+        util::asio::v1::makeOperation<Op>(std::move(init.handler), this->shared_from_this())();
 
         return init.result.get();
     }
@@ -164,7 +165,7 @@ public:
         assert(mHandshakeComplete && "asyncHandshake must succeed before calling asyncKeepalive");
 
         using Op = KeepaliveOperation;
-        util::asio::makeOperation<Op>(std::move(init.handler), this->shared_from_this())();
+        util::asio::v1::makeOperation<Op>(std::move(init.handler), this->shared_from_this())();
 
         return init.result.get();
     }
