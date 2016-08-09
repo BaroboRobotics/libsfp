@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2016 Barobo, Inc.
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+
 #define SFP_CONFIG_HISTORY_BUFFER_CAPACITY SFP_SEQ_RANGE
 #define BOOST_BIND_NO_PLACEHOLDERS // don't put _1, _2, etc. in global namespcae
 #define SFP_CONFIG_THREADSAFE

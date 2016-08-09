@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2016 Barobo, Inc.
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+
 #ifndef _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 #define _LIBSFP_SERIAL_FRAMING_PROTOCOL_H_
 

@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2016 Barobo, Inc.
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+
 #include <sfp/serial_framing_protocol.h>
 
 #if defined(SFP_CONFIG_DEBUG) || defined(SFP_CONFIG_WARN) || defined(SFP_CONFIG_ERROR)
