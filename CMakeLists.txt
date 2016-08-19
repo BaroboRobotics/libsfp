@@ -27,9 +27,14 @@ find_package(cxx-util)
 
 add_library(sfp ${sources})
 set_target_properties(sfp
-    PROPERTIES CXX_STANDARD 14
-               CXX_STANDARD_REQUIRED ON
-               )
+    PROPERTIES
+        CXX_STANDARD 14
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+        MACOSX_RPATH ON
+)
 
 if(HAVE_EXCEPTIONS)
     target_include_directories(sfp PUBLIC ${Boost_INCLUDE_DIRS})
@@ -44,12 +49,6 @@ if(SFP_BUILD_TESTS)
 endif()
 
 # target properties
-
-set_target_properties(sfp PROPERTIES
-  VERSION ${PROJECT_VERSION}
-  SOVERSION ${PROJECT_VERSION_MAJOR}
-  MACOSX_RPATH ON
-)
 
 configure_file(config.h.in include/sfp/config.h)
 target_include_directories(sfp
