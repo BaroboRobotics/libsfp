@@ -62,6 +62,8 @@ public:
     }
 #endif
 
+    boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
+
     AsyncStream& next_layer() { return next_layer_; }
     const AsyncStream& next_layer() const { return next_layer_; }
 
