@@ -14,7 +14,7 @@
 
 #include <beast/core/consuming_buffers.hpp>
 #include <beast/core/handler_alloc.hpp>
-#include <beast/core/streambuf.hpp>
+#include <beast/core/multi_buffer.hpp>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_service.hpp>
@@ -37,8 +37,8 @@ class stream {
     boost::asio::io_service::strand write_strand;
     composed::phaser<boost::asio::io_service::strand&> write_phaser;
 
-    beast::basic_streambuf<Alloc> read_buffer;
-    beast::basic_streambuf<Alloc> write_buffer;
+    beast::basic_multi_buffer<Alloc> read_buffer;
+    beast::basic_multi_buffer<Alloc> write_buffer;
 
     beast::consuming_buffers<decltype(read_buffer.data())> input_sequence;
     // View into read_buffer, if there are bytes that have been read but not yet SFP-processed.
