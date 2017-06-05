@@ -315,36 +315,34 @@ template <class DynamicBuffer, class Handler>
 void stream<AsyncStream, Alloc>::read_op<DynamicBuffer, Handler>::
 operator()(composed::op<read_op>& op) {
     if (!ec) reenter(this) {
-        BOOST_LOG(lg) << "Starting read_op";
         if (self.sfp_packet.len == 0 && self.read_buffer.size()) {
-            BOOST_LOG(lg) << "Draining read_buffer";
 
             // Drain the read_buffer if there's anything left in there.
             yield return self.write_phaser.dispatch(op());
             work = composed::make_work_guard(self.write_phaser);
             self.deliver_input_sequence();
-            yield return boost::asio::async_write(self.next_layer_, self.write_buffer.data(),
-                    op(flush_ec, std::ignore));
-            self.write_buffer.consume(self.write_buffer.size());
+            if (self.write_buffer.size()) {
+                yield return boost::asio::async_write(self.next_layer_, self.write_buffer.data(),
+                        op(flush_ec, std::ignore));
+                self.write_buffer.consume(self.write_buffer.size());
+            }
             work = {};
         }
 
         while (!flush_ec && self.sfp_packet.len == 0) {
-            BOOST_LOG(lg) << "reading and writing";
-
             self.read_buffer.consume(self.read_buffer.size());
             yield return self.next_layer_.async_read_some(self.read_buffer.prepare(256), op(ec, rx_n));
             self.read_buffer.commit(rx_n);
             yield return self.write_phaser.dispatch(op());
             work = composed::make_work_guard(self.write_phaser);
             self.deliver_input_sequence();
-            yield return boost::asio::async_write(self.next_layer_, self.write_buffer.data(),
-                    op(flush_ec, std::ignore));
-            self.write_buffer.consume(self.write_buffer.size());
+            if (self.write_buffer.size()) {
+                yield return boost::asio::async_write(self.next_layer_, self.write_buffer.data(),
+                        op(flush_ec, std::ignore));
+                self.write_buffer.consume(self.write_buffer.size());
+            }
             work = {};
         }
-
-        BOOST_LOG(lg) << "read_op completing with packet size " << self.sfp_packet.len;
 
         rx_n = boost::asio::buffer_copy(
                 dest_buffer.prepare(self.sfp_packet.len),
