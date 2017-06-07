@@ -74,6 +74,10 @@ private:
     struct write_op;
 
 public:
+    void cancel(boost::system::error_code& ec) {
+        next_layer_.cancel(ec);
+    }
+
     template <class Token>
     auto async_handshake(Token&& token) {
         return composed::operation<handshake_op<>>{}(*this, std::forward<Token>(token));
