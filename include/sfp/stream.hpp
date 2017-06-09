@@ -30,26 +30,26 @@ namespace sfp {
 static const std::chrono::milliseconds kSfpConnectTimeout { 500 } ;
 static const std::chrono::milliseconds kSfpSettleTimeout { 200 } ;
 
-template <class AsyncStream, class Alloc = std::allocator<char>>
+template <class AsyncStream>
 class stream {
     AsyncStream next_layer_;
     boost::asio::io_service::strand write_strand;
     composed::phaser<boost::asio::io_service::strand&> write_phaser;
 
-    beast::basic_multi_buffer<Alloc> read_buffer;
-    beast::basic_multi_buffer<Alloc> write_buffer;
+    beast::multi_buffer read_buffer;
+    beast::multi_buffer write_buffer;
 
     SFPcontext sfp_context;
     SFPpacket sfp_packet;
 
 public:
     template <class... Args>
-    stream(Alloc alloc, Args&&... args)
+    stream(Args&&... args)
         : next_layer_(std::forward<Args>(args)...)
         , write_strand(next_layer_.get_io_service())
         , write_phaser(write_strand)
-        , read_buffer(1024, alloc)
-        , write_buffer(1024, alloc)
+        , read_buffer(1024)
+        , write_buffer(1024)
     {}
 
 #ifdef SFP_CONFIG_DEBUG
@@ -145,9 +145,9 @@ private:
     }
 };
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-struct stream<AsyncStream, Alloc>::handshake_op: boost::asio::coroutine {
+struct stream<AsyncStream>::handshake_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
@@ -166,9 +166,9 @@ struct stream<AsyncStream, Alloc>::handshake_op: boost::asio::coroutine {
     void operator()(composed::op<handshake_op>&);
 };
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-void stream<AsyncStream, Alloc>::handshake_op<Handler>::
+void stream<AsyncStream>::handshake_op<Handler>::
 operator()(composed::op<handshake_op>& op) {
     if (!ec) reenter(this) {
         sfpInit(&self.sfp_context);
@@ -206,9 +206,9 @@ operator()(composed::op<handshake_op>& op) {
     op.complete(ec);
 }
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-struct stream<AsyncStream, Alloc>::read_until_connected_op: boost::asio::coroutine {
+struct stream<AsyncStream>::read_until_connected_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
@@ -227,9 +227,9 @@ struct stream<AsyncStream, Alloc>::read_until_connected_op: boost::asio::corouti
     void operator()(composed::op<read_until_connected_op>&);
 };
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-void stream<AsyncStream, Alloc>::read_until_connected_op<Handler>::
+void stream<AsyncStream>::read_until_connected_op<Handler>::
 operator()(composed::op<read_until_connected_op>& op) {
     if (!ec) reenter(this) {
         while (!sfpIsConnected(&self.sfp_context)) {
@@ -245,9 +245,9 @@ operator()(composed::op<read_until_connected_op>& op) {
     op.complete(ec);
 }
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-struct stream<AsyncStream, Alloc>::read_until_delivery_op: boost::asio::coroutine {
+struct stream<AsyncStream>::read_until_delivery_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
@@ -266,9 +266,9 @@ struct stream<AsyncStream, Alloc>::read_until_delivery_op: boost::asio::coroutin
     void operator()(composed::op<read_until_delivery_op>&);
 };
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-void stream<AsyncStream, Alloc>::read_until_delivery_op<Handler>::
+void stream<AsyncStream>::read_until_delivery_op<Handler>::
 operator()(composed::op<read_until_delivery_op>& op) {
     if (!ec) reenter(this) {
         BOOST_ASSERT(self.sfp_packet.len == 0);
@@ -286,9 +286,9 @@ operator()(composed::op<read_until_delivery_op>& op) {
     op.complete(ec);
 }
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class DynamicBuffer, class Handler>
-struct stream<AsyncStream, Alloc>::read_op: boost::asio::coroutine {
+struct stream<AsyncStream>::read_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
@@ -314,9 +314,9 @@ struct stream<AsyncStream, Alloc>::read_op: boost::asio::coroutine {
     void operator()(composed::op<read_op>&);
 };
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class DynamicBuffer, class Handler>
-void stream<AsyncStream, Alloc>::read_op<DynamicBuffer, Handler>::
+void stream<AsyncStream>::read_op<DynamicBuffer, Handler>::
 operator()(composed::op<read_op>& op) {
     if (!ec) reenter(this) {
         if (self.sfp_packet.len == 0 && self.read_buffer.size()) {
@@ -364,9 +364,9 @@ operator()(composed::op<read_op>& op) {
     op.complete(ec);
 }
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-struct stream<AsyncStream, Alloc>::write_op: boost::asio::coroutine {
+struct stream<AsyncStream>::write_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
@@ -390,9 +390,9 @@ struct stream<AsyncStream, Alloc>::write_op: boost::asio::coroutine {
     void operator()(composed::op<write_op>&);
 };
 
-template <class AsyncStream, class Alloc>
+template <class AsyncStream>
 template <class Handler>
-void stream<AsyncStream, Alloc>::write_op<Handler>::
+void stream<AsyncStream>::write_op<Handler>::
 operator()(composed::op<write_op>& op) {
     if (!ec) reenter(this) {
         yield return self.write_phaser.dispatch(op());
