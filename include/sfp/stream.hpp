@@ -59,9 +59,10 @@ public:
 #endif
 
     boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
-
-    AsyncStream& next_layer() { return next_layer_; }
-    const AsyncStream& next_layer() const { return next_layer_; }
+    auto& next_layer() { return next_layer_; }
+    const auto& next_layer() const { return next_layer_; }
+    auto& lowest_layer() { return next_layer_.lowest_layer(); }
+    const auto& lowest_layer() const { return next_layer_.lowest_layer(); }
 
 private:
     template <class Handler = void(boost::system::error_code)>
