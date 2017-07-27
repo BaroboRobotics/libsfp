@@ -34,7 +34,7 @@ public:
     void initialize () {
         sfpInit(&mContext);
         sfpSetDeliverCallback(&mContext, staticDeliver, this);
-        sfpSetWriteCallback(&mContext, SFP_WRITE_ONE, (void*)staticWrite, this);
+        sfpSetWriteCallback(&mContext, staticWrite, this);
 
 #ifdef SFP_CONFIG_THREADSAFE
         sfpSetLockCallback(&mContext, staticLock, this);
@@ -78,9 +78,12 @@ private:
         static_cast<Context*>(data)->messageReceived(buf, len);
     }
 
-    static int staticWrite (uint8_t octet, size_t* outlen, void* data) {
-        if (outlen) { *outlen = 1; }
-        static_cast<Context*>(data)->output(octet);
+    static int staticWrite (uint8_t* octets, size_t len, size_t* outlen, void* data) {
+        size_t i;
+        if (!outlen) { outlen = &i; }
+        for (*outlen = 0; *outlen != len; ++*outlen) {
+            static_cast<Context*>(data)->output(octet);
+        }
         return 0;
     }
 

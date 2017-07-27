@@ -112,7 +112,7 @@ void sfpInit (SFPcontext *ctx) {
 
   ctx->tx.writebufn = 0;
 
-  sfpSetWriteCallback(ctx, SFP_WRITE_ONE, NULL, NULL);
+  sfpSetWriteCallback(ctx, NULL, NULL);
   sfpSetLockCallback(ctx, NULL, NULL);
   sfpSetUnlockCallback(ctx, NULL, NULL);
 }
@@ -160,29 +160,9 @@ void sfpSetDeliverCallback (SFPcontext *ctx, SFPdeliverfun cbfun, void *userdata
   ctx->rx.deliverData = userdata;
 }
 
-void sfpSetWriteCallback (SFPcontext *ctx, SFPwritetype type,
-    void *cbfun, void *userdata) {
-  /* How this works: if the user wants to use SFP_WRITE_MULTIPLE, we still use
-   * our write1 pointer, we just point it to our own function which buffers
-   * the octets privately. sfpFlushWriteBuffer() then calls the user-provided
-   * writen() function. If the user wants to use SFP_WRITE_ONE, then the
-   * sfpFlushWriteBuffer() call is just a no-op. */
-  switch (type) {
-    case SFP_WRITE_ONE:
-      ctx->tx.write1 = (SFPwrite1fun)cbfun;
-      ctx->tx.write1Data = userdata;
-      ctx->tx.writen = NULL;
-      ctx->tx.writenData = NULL;
-      break;
-    case SFP_WRITE_MULTIPLE:
-      ctx->tx.write1 = sfpBufferedWrite;
-      ctx->tx.write1Data = ctx;
-      ctx->tx.writen = (SFPwritenfun)cbfun;
-      ctx->tx.writenData = userdata;
-      break;
-    default:
-      assert(0);
-  }
+void sfpSetWriteCallback (SFPcontext *ctx, SFPwritefun cbfun, void *userdata) {
+  ctx->tx.write = cbfun;
+  ctx->tx.writeData = userdata;
 }
 
 void sfpSetLockCallback (SFPcontext *ctx, SFPlockfun cbfun, void *userdata) {
@@ -710,7 +690,7 @@ static int sfpIsTransmitterLockable (SFPcontext *ctx) {
   return ctx->tx.lock && ctx->tx.unlock;
 }
 
-/* Wrapper around ctx->write1, updating the rolling CRC and escaping
+/* Wrapper around sfpBufferedWrite, updating the rolling CRC and escaping
  * reserved octets as necessary. */
 static int sfpWrite (SFPcontext *ctx, uint8_t octet, size_t *outlen) {
   ctx->tx.crc = _crc_ccitt_update(ctx->tx.crc, octet);
@@ -725,17 +705,17 @@ static int sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet, size_t *outlen) {
 
   if (isReservedOctet(octet)) {
     octet ^= SFP_ESC_FLIP_BIT;
-    ctx->tx.write1(SFP_ESC, &n, ctx->tx.write1Data);
+    sfpBufferedWrite(SFP_ESC, &n, ctx);
     if (outlen) {
       *outlen += n;
     }
   }
-  ctx->tx.write1(octet, &n, ctx->tx.write1Data);
+  sfpBufferedWrite(octet, &n, ctx);
   if (outlen) {
     *outlen += n;
   }
 
-  /* FIXME collect return values from write1 */
+  /* FIXME collect return values from sfpBufferedWrite */
   return 0;
 }
 
@@ -816,7 +796,7 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
   ctx->tx.crc = SFP_CRC_PRESET;
 
   /* Begin frame. */
-  ctx->tx.write1(SFP_FLAG, &n, ctx->tx.write1Data);
+  sfpBufferedWrite(SFP_FLAG, &n, ctx);
 
   *outlen += n;
 
@@ -847,7 +827,7 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
   }
 
   /* End frame. */
-  ctx->tx.write1(SFP_FLAG, &n, ctx->tx.write1Data);
+  sfpBufferedWrite(SFP_FLAG, &n, ctx);
   *outlen += n;
 
   sfpFlushWriteBuffer(ctx);
@@ -866,22 +846,15 @@ static int sfpTransmitFrameWithHeader (SFPcontext *ctx, SFPheader header, SFPpac
 }
 
 static void sfpFlushWriteBuffer (SFPcontext *ctx) {
-  if (ctx->tx.writen) {
-    size_t outlen;
-    ctx->tx.writen(ctx->tx.writebuf, ctx->tx.writebufn, &outlen, ctx->tx.writenData);
-    ctx->tx.writebufn = 0;
-  }
-  else {
-    assert(!ctx->tx.writebufn);
-  }
+  size_t outlen;
+  ctx->tx.write(ctx->tx.writebuf, ctx->tx.writebufn, &outlen, ctx->tx.writeData);
+  ctx->tx.writebufn = 0;
 }
 
 static int sfpBufferedWrite (uint8_t octet, size_t *outlen, void *data) {
   SFPcontext *ctx = (SFPcontext *)data;
 
-  /* If we're in this function, that means we're using SFP_WRITE_MULTIPLE,
-   * so the writen function had better exist. */
-  assert(ctx->tx.writen);
+  assert(ctx->tx.write);
 
   if (ctx->tx.writebufn >= SFP_CONFIG_WRITEBUF_SIZE) {
     sfpFlushWriteBuffer(ctx);
