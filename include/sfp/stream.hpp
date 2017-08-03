@@ -173,9 +173,9 @@ void stream<AsyncStream>::handshake_op<Handler>::
 operator()(composed::op<handshake_op>& op) {
     if (!ec) reenter(this) {
         sfpInit(&self.sfp_context);
-        sfpSetWriteCallback(&self.sfp_context,
-            [](uint8_t* octets, size_t len, size_t* outlen, void* data) {
-                return static_cast<stream*>(data)->on_sfp_write(octets, len, outlen);
+        sfpSetWriteCallback(&self.sfp_context, SFP_WRITE_MULTIPLE,
+            (void*)+[](uint8_t* octets, size_t len, size_t* outlen, void* data) {
+                static_cast<stream*>(data)->on_sfp_write(octets, len, outlen);
             }, &self);
         sfpConnect(&self.sfp_context);
         yield return boost::asio::async_write(self.next_layer_, self.write_buffer.data(),
