@@ -82,7 +82,7 @@ private:
         size_t i_;
         auto& i = outlen ? *outlen : i_;
 
-        for (i = 0; i != len; ++outlen) {
+        for (i = 0; i != len; ++i) {
             static_cast<Context*>(data)->output(octets[i]);
         }
         return 0;
