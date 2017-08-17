@@ -79,10 +79,11 @@ private:
     }
 
     static int staticWrite (uint8_t* octets, size_t len, size_t* outlen, void* data) {
-        size_t i;
-        if (!outlen) { outlen = &i; }
-        for (*outlen = 0; *outlen != len; ++*outlen) {
-            static_cast<Context*>(data)->output(octet);
+        size_t i_;
+        auto& i = outlen ? *outlen : i_;
+
+        for (i = 0; i != len; ++outlen) {
+            static_cast<Context*>(data)->output(octets[i]);
         }
         return 0;
     }
