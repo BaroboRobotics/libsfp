@@ -90,8 +90,7 @@ typedef struct SFPpacket {
 } SFPpacket;
 
 typedef void (*SFPdeliverfun) (uint8_t* buf, size_t len, void *userdata);
-typedef int (*SFPwrite1fun) (uint8_t octet, size_t *outlen, void *userdata);
-typedef int (*SFPwritenfun) (uint8_t *octets, size_t len, size_t *outlen, void *userdata);
+typedef int (*SFPwritefun) (uint8_t *octets, size_t len, size_t *outlen, void *userdata);
 typedef void (*SFPlockfun) (void *userdata);
 typedef void (*SFPunlockfun) (void *userdata);
 
@@ -104,11 +103,6 @@ typedef enum {
   SFP_FRAME_STATE_NEW,
   SFP_FRAME_STATE_RECEIVING
 } SFPframestate;
-
-typedef enum {
-  SFP_WRITE_ONE,
-  SFP_WRITE_MULTIPLE
-} SFPwritetype;
 
 typedef enum {
   SFP_CONNECT_STATE_DISCONNECTED,
@@ -126,11 +120,8 @@ typedef struct SFPtransmitter {
   uint8_t writebuf[SFP_CONFIG_WRITEBUF_SIZE];
   size_t writebufn;
 
-  SFPwrite1fun write1;
-  void *write1Data;
-
-  SFPwritenfun writen;
-  void *writenData;
+  SFPwritefun write;
+  void *writeData;
 
   SFPlockfun lock;
   void *lockData;
@@ -181,7 +172,7 @@ size_t sfpGetSizeof (void);
 void sfpInit (SFPcontext *ctx);
 
 void sfpSetDeliverCallback (SFPcontext *ctx, SFPdeliverfun cbfun, void *userdata);
-void sfpSetWriteCallback (SFPcontext *ctx, SFPwritetype type, void *cbfun, void *userdata);
+void sfpSetWriteCallback (SFPcontext *ctx, SFPwritefun cbfun, void *userdata);
 void sfpSetLockCallback (SFPcontext *ctx, SFPlockfun cbfun, void *userdata);
 void sfpSetUnlockCallback (SFPcontext *ctx, SFPunlockfun cbfun, void *userdata);
 

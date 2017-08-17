@@ -430,8 +430,7 @@ struct MessageQueueImpl<Stream>::HandshakeOperation {
             nest_->mWriteBuffer.clear();
 
             sfpInit(&nest_->mContext);
-            sfpSetWriteCallback(&nest_->mContext, SFP_WRITE_MULTIPLE,
-                (void*)&Nest::writeCallback, nest_.get());
+            sfpSetWriteCallback(&nest_->mContext, &Nest::writeCallback, nest_.get());
             sfpSetDeliverCallback(&nest_->mContext, deliverCallback, nest_.get());
 
             nest_->startReadPump();
