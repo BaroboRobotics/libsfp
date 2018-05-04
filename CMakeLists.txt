@@ -23,9 +23,12 @@ if(HAVE_EXCEPTIONS)
     list(APPEND sources src/system_error.cpp)
 endif()
 
-find_package(cxx-util)
+# find_package(cxx-util)
+
+add_subdirectory(deps/cxx-util)
 
 add_library(sfp ${sources})
+target_include_directories(sfp PRIVATE deps/cxx-util/include)
 set_target_properties(sfp
     PROPERTIES
         CXX_STANDARD 14
@@ -38,9 +41,9 @@ set_target_properties(sfp
 
 if(HAVE_EXCEPTIONS)
     target_include_directories(sfp PUBLIC ${Boost_INCLUDE_DIRS})
-    target_link_libraries(sfp PRIVATE ${Boost_LIBRARIES} PUBLIC barobo::cxx-util)
+    target_link_libraries(sfp PRIVATE ${Boost_LIBRARIES} PUBLIC cxx-util)
 else()
-    target_link_libraries(sfp PUBLIC barobo::cxx-util)
+    target_link_libraries(sfp PUBLIC cxx-util)
 endif()
 
 if(SFP_BUILD_TESTS)
