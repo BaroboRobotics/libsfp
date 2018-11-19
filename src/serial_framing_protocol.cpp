@@ -242,6 +242,22 @@ int sfpWritePacket (SFPcontext *ctx, const uint8_t *buf, size_t len, size_t *out
   return ret;
 }
 
+/* Entry point for transmitter. */
+int sfpWriteFrame (SFPcontext *ctx, SFPpacket *packet, size_t *outlen)
+{
+#ifdef SFP_CONFIG_WARN
+  if (SFP_CONNECT_STATE_CONNECTED != ctx->connectState) {
+    BOOST_LOG(ctx->log) << "(sfp) WARNING: Attempting to send packet on disconnected link.";
+  }
+#endif
+
+  TransmitterLock lock { ctx };
+
+  int ret = sfpTransmitUSR(ctx, packet, outlen);
+
+  return ret;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 
 static int isReservedOctet (uint8_t octet) {
