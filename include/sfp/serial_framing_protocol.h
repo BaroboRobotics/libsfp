@@ -72,8 +72,8 @@ enum {
 
 /* Defines about counters */
 #define SFP_STAT_SIZE (sizeof(((SFPdiag*) 0)->diagStatOverrun))
-#define SFP_DIAG_QTY (((((size_t) & ((SFPdiag*) 0)->diagStatOverrun) - ((size_t) & ((SFPdiag*) 0)->invalidNak)) / SFP_STAT_SIZE) + 1)
-#define SFP_ERR_QTY (((((size_t) & ((SFPdiag*) 0)->syn2CntTx) - ((size_t) & ((SFPdiag*) 0)->usrCntRx)) / SFP_STAT_SIZE) + 1)
+#define SFP_ERR_QTY (((((size_t) & ((SFPdiag*) 0)->diagStatOverrun) - ((size_t) & ((SFPdiag*) 0)->invalidNak)) / SFP_STAT_SIZE) + 1)
+#define SFP_DIAG_QTY (((((size_t) & ((SFPdiag*) 0)->syn2CntTx) - ((size_t) & ((SFPdiag*) 0)->usrCntRx)) / SFP_STAT_SIZE) + 1)
 #define SFP_CNT_QTY (SFP_DIAG_QTY + SFP_ERR_QTY)
 
 /*
