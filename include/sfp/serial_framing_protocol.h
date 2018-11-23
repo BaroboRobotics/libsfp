@@ -70,6 +70,43 @@ enum {
 #define SFP_SEQ_RANGE (1 << SFP_NUM_SEQ_BITS)
 #define SFP_INITIAL_SEQ 0
 
+/* Defines about counters */
+#define SFP_STAT_SIZE (sizeof(((SFPdiag*) 0)->diagStatOverrun))
+#define SFP_ERR_QTY (((((size_t) & ((SFPdiag*) 0)->diagStatOverrun) - ((size_t) & ((SFPdiag*) 0)->invalidNak)) / SFP_STAT_SIZE) + 1)
+#define SFP_DIAG_QTY (((((size_t) & ((SFPdiag*) 0)->syn2CntTx) - ((size_t) & ((SFPdiag*) 0)->usrCntRx)) / SFP_STAT_SIZE) + 1)
+#define SFP_CNT_QTY (SFP_DIAG_QTY + SFP_ERR_QTY)
+
+/*
+ * X-Macro defining every statistic counters supported
+ */
+#define DIAG_COUNTERS \
+  X(usrCntRx, "RX USR Count")                \
+  X(rtxCntRx, "RX RTX Count")                \
+  X(nakCntRx, "RX NAK Count")                \
+  X(disCntRx, "RX DIS Count")                \
+  X(syn0CntRx, "RX SYN0 Count")              \
+  X(syn1CntRx, "RX SYN1 Count")              \
+  X(syn2CntRx, "RX SYN2 Count")              \
+  X(usrCntTx, "TX USR Count")                \
+  X(rtxCntTx, "TX RTX Count")                \
+  X(nakCntTx, "TX NAK Count")                \
+  X(disCntTx, "TX DIS Count")                \
+  X(syn0CntTx, "TX SYN0 Count")              \
+  X(syn1CntTx, "TX SYN1 Count")              \
+  X(syn2CntTx, "TX SYN2 Count")
+
+/*
+ * X-Macro defining every error counters supported
+ */
+#define ERROR_COUNTERS                       \
+  X(invalidNak, "NB invalid NAK received")   \
+  X(invalidSynRx, "NB invalid SYN received") \
+  X(historyUnderrun, "NB history underrun")  \
+  X(shortFrame, "NB short frame")            \
+  X(badFcs, "NB bad FCS")                    \
+  X(frameTooBig, "NB Frame Too Big")         \
+  X(diagStatOverrun, "NB Stats overrun")
+
 typedef enum {
   SFP_FRAME_USR = 0,
   SFP_FRAME_RTX,
@@ -130,6 +167,13 @@ typedef struct SFPtransmitter {
   void *unlockData;
 } SFPtransmitter;
 
+typedef struct SFPdiag {
+#define X(var, msg) uint32_t var;
+	DIAG_COUNTERS
+	ERROR_COUNTERS
+#undef X
+}SFPdiag;
+
 typedef struct SFPreceiver {
   SFPseq seq;
   SFPcrc crc;
@@ -150,6 +194,9 @@ typedef struct SFPcontext {
 
   SFPconnectstate connectState;
 
+#ifdef SFP_CONFIG_DIAG
+  SFPdiag diag;
+#endif
 #ifdef SFP_CONFIG_DEBUG
   char debugName[SFP_CONFIG_MAX_DEBUG_NAME_SIZE];
 #endif

@@ -19,6 +19,26 @@
 #include <ctype.h>
 #include <string.h>
 
+// Logic for incrementing a stat
+#ifdef SFP_CONFIG_DIAG
+#ifdef SFP_CONFIG_THREADSAFE
+#define DIAG_INC(stat)                                                   \
+  if (0 == __atomic_add_fetch(&stat, 1, __ATOMIC_ACQ_REL))               \
+  {                                                                      \
+    __atomic_add_fetch(&ctx->diag.diagStatOverrun, 1, __ATOMIC_ACQ_REL); \
+  }
+#else
+#define DIAG_INC(stat)           \
+  if (0 == stat++)               \
+  {                              \
+    ctx->diag.diagStatOverrun++; \
+  }
+#endif
+#else
+DIAG_INC(stat)
+#endif
+
+
 //////////////////////////////////////////////////////////////////////////////
 
 #ifdef AVR
@@ -115,6 +135,12 @@ void sfpInit (SFPcontext *ctx) {
   sfpSetWriteCallback(ctx, NULL, NULL);
   sfpSetLockCallback(ctx, NULL, NULL);
   sfpSetUnlockCallback(ctx, NULL, NULL);
+
+#ifdef SFP_CONFIG_DIAG
+#define X(var, msg) ctx->diag.var = 0;
+  DIAG_COUNTERS
+#undef X
+#endif
 }
 
 struct TransmitterLock {
@@ -353,6 +379,7 @@ static int sfpHandleFrame (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_WARN
     BOOST_LOG(ctx->log) << "(sfp) WARNING: short frame received, sending NAK.";
 #endif
+    DIAG_INC(ctx->diag.shortFrame);
     TransmitterLock lock { ctx };
     sfpTransmitNAK(ctx, ctx->rx.seq);
     return 0;
@@ -366,6 +393,7 @@ static int sfpHandleFrame (SFPcontext *ctx) {
 #ifdef SFP_CONFIG_WARN
     BOOST_LOG(ctx->log) << "(sfp) WARNING: CRC mismatch, sending NAK.";
 #endif
+    DIAG_INC(ctx->diag.badFcs);
     TransmitterLock lock { ctx };
     sfpTransmitNAK(ctx, ctx->rx.seq);
     return 0;
@@ -389,8 +417,11 @@ static int sfpHandleFrame (SFPcontext *ctx) {
    * reasons, too, too dark to articulate. */
   switch (type) {
     case SFP_FRAME_USR:
-      /* fall-through */
+      DIAG_INC(ctx->diag.usrCntRx);
+      ret = sfpHandleUSR(ctx);
+      break;
     case SFP_FRAME_RTX:
+      DIAG_INC(ctx->diag.rtxCntRx);
       ret = sfpHandleUSR(ctx);
       break;
     case SFP_FRAME_NAK: {
@@ -481,6 +512,7 @@ static int sfpHandleUSR (SFPcontext *ctx) {
 }
 
 static void sfpHandleSYN0 (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.syn0CntRx);
   /* All connect states do the same thing. */
 
   sfpResetReceiver(ctx);
@@ -492,6 +524,7 @@ static void sfpHandleSYN0 (SFPcontext *ctx) {
 }
 
 static void sfpHandleSYN1 (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.syn1CntRx);
   if (SFP_CONNECT_STATE_DISCONNECTED == ctx->connectState) {
     sfpTransmitDIS(ctx);
   }
@@ -508,6 +541,7 @@ static void sfpHandleSYN1 (SFPcontext *ctx) {
 }
 
 static void sfpHandleSYN2 (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.syn2CntRx);
   if (SFP_CONNECT_STATE_DISCONNECTED == ctx->connectState) {
     sfpTransmitDIS(ctx);
   }
@@ -527,6 +561,7 @@ static void sfpHandleSYN2 (SFPcontext *ctx) {
 
 static void sfpHandleNAK (SFPcontext *ctx) {
   assert(SFP_FRAME_NAK == getFrameType(ctx->rx.header));
+  DIAG_INC(ctx->diag.nakCntRx);
 
   switch (ctx->connectState) {
     case SFP_CONNECT_STATE_DISCONNECTED:
@@ -553,6 +588,9 @@ static void sfpHandleNAK (SFPcontext *ctx) {
   if (seq != ctx->tx.seq) {
     sfpTransmitHistoryFromSeq(ctx, seq);
   }
+  else {
+    DIAG_INC(ctx->diag.invalidNak);
+  }
 }
 
 static void sfpHandleSYN (SFPcontext *ctx) {
@@ -571,10 +609,12 @@ static void sfpHandleSYN (SFPcontext *ctx) {
       sfpHandleSYN2(ctx);
       break;
     case SFP_SEQ_SYN_DIS:
+      DIAG_INC(ctx->diag.disCntRx);
       /* FIXME bitch to the user? */
       ctx->connectState = SFP_CONNECT_STATE_DISCONNECTED;
       break;
     default:
+      DIAG_INC(ctx->diag.invalidSynRx);
       /* error: SYN with unknown SEQ */
       break;
   }
@@ -613,6 +653,7 @@ static void sfpTransmitHistoryFromSeq (SFPcontext *ctx, SFPseq seq) {
     BOOST_LOG(ctx->log) << "(sfp) ERROR: " << SFP_SEQ_RANGE - fastforward << " outgoing frame(s) lost by history buffer underrun.";
 #endif
 
+    DIAG_INC(ctx->diag.historyUnderrun);
     /* Even if we lost frames, the show still has to go on. Resynchronize, and
      * send what frames we have available in our history. */
   }
@@ -673,7 +714,7 @@ static void sfpBufferOctet (SFPcontext *ctx, uint8_t octet) {
                         << " Try increasing SFP_CONFIG_MAX_PACKET_SIZE."
                         << " This could also be caused by a corrupt FLAG octet.";
 #endif
-
+    DIAG_INC(ctx->diag.frameTooBig);
     /* Until I have a better idea, just going to pretend we didn't receive
      * anything at all, and just go on with life. If this was caused by a
      * corrupt FLAG octet, then our forthcoming NAK should resynchronize
@@ -720,6 +761,7 @@ static int sfpWriteNoCRC (SFPcontext *ctx, uint8_t octet, size_t *outlen) {
 }
 
 static void sfpTransmitNAK (SFPcontext *ctx, SFPseq seq) {
+  DIAG_INC(ctx->diag.nakCntTx);
   SFPheader header = seq << SFP_FIRST_SEQ_BIT;
   header |= SFP_FRAME_NAK << SFP_FIRST_CONTROL_BIT;
 
@@ -727,6 +769,7 @@ static void sfpTransmitNAK (SFPcontext *ctx, SFPseq seq) {
 }
 
 static void sfpTransmitDIS (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.disCntTx);
   SFPheader header = SFP_SEQ_SYN_DIS << SFP_FIRST_SEQ_BIT;
   header |= SFP_FRAME_SYN << SFP_FIRST_CONTROL_BIT;
 
@@ -734,6 +777,7 @@ static void sfpTransmitDIS (SFPcontext *ctx) {
 }
 
 static void sfpTransmitSYN0 (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.syn0CntTx);
   SFPheader header = SFP_SEQ_SYN0 << SFP_FIRST_SEQ_BIT;
   header |= SFP_FRAME_SYN << SFP_FIRST_CONTROL_BIT;
 
@@ -741,6 +785,7 @@ static void sfpTransmitSYN0 (SFPcontext *ctx) {
 }
 
 static void sfpTransmitSYN1 (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.syn1CntTx);
   SFPheader header = SFP_SEQ_SYN1 << SFP_FIRST_SEQ_BIT;
   header |= SFP_FRAME_SYN << SFP_FIRST_CONTROL_BIT;
 
@@ -748,6 +793,7 @@ static void sfpTransmitSYN1 (SFPcontext *ctx) {
 }
 
 static void sfpTransmitSYN2 (SFPcontext *ctx) {
+  DIAG_INC(ctx->diag.syn2CntTx);
   SFPheader header = SFP_SEQ_SYN2 << SFP_FIRST_SEQ_BIT;
   header |= SFP_FRAME_SYN << SFP_FIRST_CONTROL_BIT;
 
@@ -755,10 +801,12 @@ static void sfpTransmitSYN2 (SFPcontext *ctx) {
 }
 
 static int sfpTransmitUSR (SFPcontext *ctx, SFPpacket *packet, size_t *outlen) {
+  DIAG_INC(ctx->diag.usrCntTx);
   return sfpTransmitFrameImpl(ctx, packet, outlen, 0);
 }
 
 static void sfpTransmitRTX (SFPcontext *ctx, SFPpacket *packet) {
+  DIAG_INC(ctx->diag.rtxCntTx);
   sfpTransmitFrameImpl(ctx, packet, NULL, 1);
 }
 
